@@ -1,25 +1,35 @@
 # P0 progress
 
-Checked 2026-11-05 (Asia/Shanghai), development host m701.
+Verified 2026-11-05T17:24:53+08:00 on m701. Source: Compose health, container image metadata, runtime version commands and the real MCP smoke test.
 
-## Implemented
+## Running lab
 
-- Local Git repository and TypeScript project with locked dependencies.
-- Isolated Docker Compose lab: CE 6.3.2, MongoDB 8.0 and Redis 7.4 selected and pinned to amd64 image digests. Overleaf binds only 127.0.0.1:18080; database ports are not published. Separate Docker volumes, CPU and memory limits.
-- HTTP adapter: cookie jar, CSRF login, project allowlist, project listing, compile and artifact download; no automatic mutation retries or credential-carrying redirects.
-- Three stdio MCP tools: service probe, project list, compile.
-- Lab account/bootstrap and real MCP smoke scripts prepared. Passwords are generated into ignored files with restricted permissions.
+- Repository: `/home/shouss/projects/overleaf-agent`, branch `main`; no Git remote configured.
+- Overleaf CE 6.3.2 on `127.0.0.1:18080`; image digest pinned in `compose.yaml`.
+- Actual image label `com.overleaf.ce.revision`: `370f4763da4bc910da8309c9a71c85ecbe39f6a7`. This differs from the earlier main-branch research revision; use the running image source for further protocol work.
+- TeX Live 2026; MongoDB 8.0.34 (single-member replica set); Redis 7.4.12 with AOF enabled. All three services are healthy.
+- Independent Docker network and volumes; database ports are not published; CPU and memory limits are configured. No GPU requested.
+- Three ordinary lab accounts: human, Agent and unrelated outsider. Their randomly generated credentials are in `.local/lab-users.json`, mode 0600. One sample project is owned by the Agent. These accounts are unrelated to production identities.
 
-## Validation
+## Implemented and verified
 
-`npm run typecheck`, `npm run build`, `npm test` passed. Three tests exercise session/CSRF behavior, endpoint and project constraints, and an actual stdio MCP client/server conversation against a fixture HTTP server. These are not live Overleaf compatibility results.
+- TypeScript project with locked dependencies, HTTP cookie jar and CSRF login, explicit project allowlist, project listing, compile and artifact download.
+- Three stdio MCP tools: `overleaf_status`, `overleaf_list_projects`, `overleaf_compile`.
+- No credential-carrying redirects or automatic mutation retries. Stdout contains only protocol messages when the server is launched directly with Node.
+- `npm run typecheck`, `npm run build`, `npm test`: passed (three tests covering session/CSRF, endpoint/project constraints and a real stdio MCP exchange against a fixture backend).
+- `npm run lab:bootstrap`, `npm run diagnose`, `npm run smoke`: passed against the actual lab. MCP client handshake/listing succeeded; one project was visible; compile returned success; a 248,689-byte artifact started with `%PDF-`.
+- A project outside the local allowlist was rejected. An unrelated Overleaf account with that project placed in its local allowlist still saw no project and was denied compilation by Overleaf itself.
+- CE account creation requires `analyticsId`; the lab bootstrap now supplies a generated UUID. It reuses existing lab accounts and does not reset their passwords.
 
-Live bootstrap and smoke test have not run yet. Image downloads are still in progress: Harbor first returned a short-read error and then Docker Hub upstream rate limiting. The Overleaf image is being fetched directly from Docker Hub; MongoDB's Docker official ECR mirror has the same selected digest. Compose records those image sources for this host-only lab. Redis is cached through Harbor. Production K8s delivery will use the project's normal registry path.
+## Image transfer note
 
-## Next
+Harbor returned an incomplete large layer and then Docker Hub upstream rate limiting. Direct long-running Docker downloads also stalled. The official Docker Hub/ECR blobs were fetched in ranges, each manifest/config/layer SHA-256 was verified against the pinned manifest, then imported as OCI archives with the original digest references. Redis was pulled through Harbor. The helper and archives were temporary development artifacts; the normal Compose workflow remains unchanged. Production K8s delivery will use the normal project registry path.
 
-1. Finish pulling images, start Compose and confirm the runtime revision.
-2. Run lab bootstrap, diagnosis and live MCP compile/PDF smoke; resolve differences against actual container source.
-3. P1: verify the lab Agent's displayed identity and human invitation, then probe realtime project/document protocols.
+## Next: P1 / remaining P0 protocol work
 
-No production service, account, database or GitOps manifest was changed by this development task. The new repository has no Git remote configured yet.
+1. Probe the target image's Socket.IO project/document join, document versions and OT format.
+2. Verify human invitation, Agent presence and display name in the web editor, and edit attribution.
+3. Implement realtime reads, then local patches and concurrent-edit/reconnect tests.
+4. Shared HTTP MCP, user binding, OAuth and revocation remain later milestones. Current configuration is a single local development identity, not a deployed multi-user service.
+
+Old Overleaf, production accounts, databases and GitOps manifests were not changed. Lab data remains in its own volumes; use `docker compose stop` to stop without removing it.

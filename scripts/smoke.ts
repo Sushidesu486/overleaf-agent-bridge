@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import assert from "node:assert/strict";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -46,6 +47,20 @@ try {
     arguments: { projectId: "aaaaaaaaaaaaaaaaaaaaaaaa" },
   });
   assert.ok(denied.isError);
+  // Check Overleaf itself denies an unrelated account, even with a local allowlist entry.
+  const users = JSON.parse(await readFile(".local/lab-users.json", "utf8"));
+  const outsider = new OverleafClient({
+    ...config,
+    email: users[2].email,
+    password: users[2].password,
+  });
+  await outsider.login();
+  assert.deepEqual(await outsider.listProjects(), []);
+  await assert.rejects(
+    () => outsider.compile(listed[0].id),
+    (error: unknown) =>
+      error instanceof Error && /HTTP (403|404)/.test(error.message),
+  );
   console.log(
     JSON.stringify(
       {
@@ -54,6 +69,7 @@ try {
         compile: build.status,
         pdfBytes: bytes.length,
         unauthorizedProject: "denied",
+        upstreamAccountIsolation: "denied",
       },
       null,
       2,

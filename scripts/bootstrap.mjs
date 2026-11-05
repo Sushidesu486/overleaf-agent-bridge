@@ -40,6 +40,7 @@ if (!existsSync(path))
   );
 chmodSync(path, 0o600);
 const script = `
+import { randomUUID } from 'node:crypto';
 import Registration from './app/src/Features/User/UserRegistrationHandler.mjs';
 import Getter from './app/src/Features/User/UserGetter.mjs';
 let input=''; for await(const b of process.stdin) input+=b;
@@ -47,7 +48,7 @@ try {
  const users=JSON.parse(input), result=[];
  for(const details of users) {
   let user=await Getter.promises.getUserByAnyEmail(details.email);
-  if(!user) user=await Registration.promises.registerNewUser(details);
+  if(!user) user=await Registration.promises.registerNewUser({...details,analyticsId:randomUUID()});
   result.push({email:details.email,id:String(user._id)});
  }
  console.log('LAB_USERS='+JSON.stringify(result));process.exit(0);
