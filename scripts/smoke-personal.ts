@@ -210,6 +210,37 @@ try {
   assert.ok(
     compiled.outputFiles.some((f: { path: string }) => f.path === "output.pdf"),
   );
+  // Resolve the same human author differently for delegated History entries.
+  const historyResponse = await human.request(`/project/${projectId}/updates`);
+  assert.equal(historyResponse.status, 200);
+  assert.equal(
+    historyResponse.headers.get("cache-control"),
+    "private, no-store",
+  );
+  const history = await historyResponse.json();
+  const agentUpdate = history.updates.find(
+    (update: { meta: { origin?: { kind: string } } }) =>
+      update.meta.origin?.kind === "agent",
+  );
+  assert.ok(agentUpdate, "MCP edit missing from History");
+  assert.equal(agentUpdate.meta.users[0].displayName, "Your agent");
+  assert.equal(agentUpdate.meta.users[0].id, `agent:${who.user.id}`);
+  assert.equal(agentUpdate.meta.users[0].userId, who.user.id);
+  const diff = await human.json(
+    `/project/${projectId}/diff?${new URLSearchParams({
+      from: String(agentUpdate.fromV),
+      to: String(agentUpdate.toV),
+      pathname: "main.tex",
+    })}`,
+  );
+  let agentParts = 0;
+  for (const part of diff.diff) {
+    if (part.meta?.origin?.kind !== "agent") continue;
+    agentParts++;
+    assert.equal(part.meta.users[0].name, "Your agent");
+    assert.equal(part.meta.users[0].userId, who.user.id);
+  }
+  assert.ok(agentParts, "Agent attribution missing from History diff");
   // Restore only our unique inserted span at the latest version.
   await call(client, "overleaf_edit_document", {
     projectId,
@@ -298,6 +329,7 @@ try {
         editing:
           "Chinese replacement, unsupported-emoji rejection, stale-version rejection and restoration passed",
         documentLockCAS: "passed",
+        historyAttribution: "owner badge and diff tooltip metadata passed",
         compile: compiled.status,
         isolation: "passed",
         csrf: "passed",

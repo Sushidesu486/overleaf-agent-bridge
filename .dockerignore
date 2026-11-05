@@ -5,3 +5,4 @@
 !extensions/agent-access/**
 !patches/
 !patches/install.py
+!patches/history.py

@@ -77,6 +77,8 @@ Overleaf 继续负责协同状态与内容持久化；我们的服务保存用�
 
 编辑通过应用模块检查项目/文档归属，再调用原生 document-updater；其 `setDocWithLock` 内新增可选 expectedVersion 比较，比较成功后使用原生差分、OT、历史和广播逻辑。补丁固定源码哈希，读取接口返回能力标记，未知文档类型拒绝写入。MCP 使用无状态 HTTP 请求，因此撤销无需维护 MCP 长连接；未来添加在线 Agent 光标时再覆盖该长连接生命周期。
 
+History 使用原生保存的 `origin.kind=agent` 区分 MCP 编辑。在历史响应中，将作者投影为 `id=agent:<userId>`、`userId=<原用户 ID>`、`actorType=agent`，本人看到 `Your agent`，其他查看者看到 `<姓名>'s agent`；此 ID 只用于历史作者展示与颜色。数据库中的作者、权限与登录身份不变，不建立第二个账号。差异预览保留手动编辑与 Agent 编辑的来源边界；已有 Agent 来源的历史直接适用。首版按用户区分 Agent，尚不按链接名称细分客户端。
+
 已验证 ShareJS 中文编辑和网页实时更新。原生 ShareJS 会替换 UTF-16 surrogate，当前主动拒绝含 emoji 等非 BMP 字符的写入。history-OT 使用原生更新路径，尚未完成单独的实际项目验证。编译返回已观察的根文档版本、可获得的历史版本和 snapshotPinned=false，明确并发编辑时没有固定整个项目快照。
 
 ### 协议与客户端

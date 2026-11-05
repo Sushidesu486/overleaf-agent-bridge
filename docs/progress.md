@@ -2,6 +2,8 @@
 
 Personal-URL milestone verified 2026-11-05T19:58:35+08:00 on m701. Sources: Compose health, official MCP SDK clients, the real Overleaf smoke script and Chrome UI/editor interaction. Old production Overleaf and its databases remain unchanged.
 
+History attribution verified 2026-11-05T22:55:53+08:00 on m701. Sources: native history API/diff responses, the patched native compressor, and Chrome on the existing `test` project. Previously recorded MCP edits now show `Your agent`, while the manual creation still shows `You`; the existing document content was not changed for this check.
+
 ## Delivered
 
 - Repository `/home/shouss/projects/overleaf-agent`, branch `main`, no Git remote configured. User-facing page: `http://localhost:18080/user/agent` through an SSH tunnel.
@@ -9,6 +11,7 @@ Personal-URL milestone verified 2026-11-05T19:58:35+08:00 on m701. Sources: Comp
 - Named grants support all current user-accessible projects or a selected subset, read/edit/compile scopes, last-use time, rotation and revocation. Secrets are displayed once and stored only as digests.
 - Six HTTP tools: identity, project list, project tree, versioned document reads, unique-text replacement, compilation. The old three-tool stdio adapter remains available.
 - Edits use the native updater's OT, history and broadcast path. A pinned source patch adds expectedVersion comparison inside its existing document lock. The adapter reauthorizes immediately before submitting, rejects unknown document types, and reserves operation IDs so interrupted submissions are not replayed.
+- History uses persisted `origin.kind=agent` to present the owner as `Your agent`, or `<owner name>'s agent` to other viewers, including diff tooltip metadata. Only history responses use the presentation ID `agent:<userId>`; the human ID is retained in `userId`. Stored authors and account permissions remain unchanged. Adjacent human/Agent insertions and deletions stay separate in diff compression.
 - Compile responses contain build ID, observed root-document version, observation time, available native history version, and `snapshotPinned: false` for live project inputs.
 - Original lab Agent account remains only a fixture for old stdio tests. Personal-URL tests use `lab-human@example.invalid` and the unrelated human fixture. Human-owned sample project: `6aec6b41a662231c7da0943a`.
 
@@ -20,11 +23,14 @@ Personal-URL milestone verified 2026-11-05T19:58:35+08:00 on m701. Sources: Comp
 - Chrome: actual login and link generation, desktop/mobile page inspection, live update in the open CodeMirror editor, matching human `user_id` in the received update, and UI revocation passed. A raw HTTP MCP client in that check used the exact generated URL; no extra Authorization header was needed.
 - Code-review Standards axis: no actionable violation. Spec axis found three issues (late revocation, unknown OT types, compile input state); all three were fixed and the reviewer confirmed closure.
 - `docker compose config --quiet` and diff whitespace checks passed. Compose services are healthy.
+- History change: typecheck/build, all 10 tests, personal and legacy smoke passed. The native compressor regression failed on the prior image and passed after the patch, covering inserts/deletes in both human→Agent and Agent→human order. `smoke:personal` now verifies History author IDs, display names, diff metadata and private/no-store caching. Chrome confirmed `Your agent` and `You` badges, rendered the existing document's diff, and showed `Added by Your agent` on hover; collaborator labels are covered by the presentation-module tests.
+
+History change review: Standards 0 actionable findings; Spec 0 findings. Both axes checked the native presentation and history merge paths against the same-account Agent requirement.
 
 ## Runtime and implementation decisions
 
 - Base: Overleaf CE 6.3.2, upstream image digest `sha256:d17e196b04222837440b5efb2890864eb200a2e9341e434c0e6bd57a61011cbb`; revision `370f4763da4bc910da8309c9a71c85ecbe39f6a7`.
-- Derived image: `overleaf-agent-lab:6.3.2-dev`, local image ID `sha256:0a14f3de38af03bd996e5994705f49379b0163d9e94f88ec805b603dbd0819b5`. Dockerfile and source-hash checks define how to reproduce the extension on this base.
+- Derived image: `overleaf-agent-lab:6.3.2-dev`, local image ID `sha256:bf520465740e079482e587f8437c02009a674c5a7d9523f6b6e46b6ae2f88cfa`. Dockerfile and source-hash checks define how to reproduce the extension on this base. The preceding personal-URL image was `sha256:0a14f3de38af03bd996e5994705f49379b0163d9e94f88ec805b603dbd0819b5`.
 - TeX Live 2026, MongoDB 8.0.34 (single-member replica set), Redis 7.4.12/AOF. Baseline versions were verified at 2026-11-05T17:24:53+08:00; this milestone keeps those base dependencies.
 - The first implementation runs a separately bundled MCP module inside Overleaf Web. This gives the authorization code direct access to native user/project permission checks and avoids creating unrestricted user sessions. A separate gateway can be introduced if operational needs justify it later.
 - Nginx suppresses credential-route access/error logs and forwards a fixed internal URL. The extension consumes and removes the credential header. HTTP MCP is stateless and revalidates every request. Grant and edit-operation metadata are in the new `agent_grants` and `agent_operations` collections within this lab database.
@@ -32,7 +38,7 @@ Personal-URL milestone verified 2026-11-05T19:58:35+08:00 on m701. Sources: Comp
 
 ## Remaining work
 
-- Native online-member/cursor Agent label; current history and live updates retain the human user ID. `overleaf_whoami` explicitly reports `presenceLabel: false`.
+- Native online-member/cursor Agent label; persisted history and live updates retain the human user ID. History now distinguishes the Agent, while `overleaf_whoami` still reports `presenceLabel: false` for online presence. All personal links for one user share the same history Agent label.
 - Real configuration checks in students' chosen MCP applications. Official SDK and direct HTTP clients are verified; application-specific OAuth requirements or URL-import behavior are not yet tested.
 - ShareJS replaces surrogate code units upstream. The adapter rejects emoji/non-BMP writes before submission, while Chinese works. The native history-OT path is allowed but still needs its own real-project fixture before broad use.
 - HTTPS domain, production gateway redaction, K8s delivery, quotas and broader user rollout. Cloud-hosted clients cannot reach this loopback-only lab.

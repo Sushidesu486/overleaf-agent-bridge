@@ -5,7 +5,7 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test test/*.test.ts",
+    "test": "tsx --test test/*.test.ts test/*.test.mjs",
     "diagnose": "tsx src/cli.ts",
     "mcp": "tsx src/server.ts",
     "smoke": "tsx scripts/smoke.ts",

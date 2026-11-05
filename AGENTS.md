@@ -5,5 +5,5 @@
 - Use Node.js >=20.19 and `npm ci`. Run `npm run typecheck`, targeted tests, then `npm test` and `npm run smoke` for affected behavior.
 - HTTP routes are private upstream interfaces. Record the tested image digest and runtime revision; use the target container's source to resolve differences.
 - The MCP process uses stdout exclusively for protocol messages. Diagnostics go to stderr.
-- Read `docs/plan.md` and `docs/progress.md` before extending the adapter. This prototype has no shared HTTP authentication or realtime writes yet.
+- Read `docs/plan.md` and `docs/progress.md` before extending the adapter. Personal HTTP URLs and native realtime writes are implemented; online Agent presence remains pending.
 - Use conventional commits with a model-name Co-authored-by trailer.
