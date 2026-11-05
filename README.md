@@ -12,6 +12,8 @@ ssh -N -L 18080:127.0.0.1:18080 m701
 
 Open <http://localhost:18080/user/agent> and sign in. The navbar also has a “我的 Agent” link. Lab credentials are in `.local/lab-users.json` on m701; the first account is `lab-human@example.invalid`. These are separate from production accounts.
 
+The page uses Overleaf’s native account-settings layout, navigation and form components. Inside an open project, the left sidebar has a “我的 Agent” tab: “连接此项目” opens the same page in a new tab and preselects only that project. The editor stays open. You can return to the project or explicitly change the scope before generating a link.
+
 Click “生成专属链接”, copy the URL into your client's HTTP MCP configuration, then ask the Agent to call `overleaf_whoami`. The URL works on a machine that can reach that loopback address through the tunnel; a cloud-hosted client needs a publicly reachable HTTPS deployment, which has not been set up yet.
 
 Full links are shown only when generated. Keep them in personal client settings. “重新生成” invalidates the old URL; “停用” rejects subsequent requests. Already submitted edits remain. Optional project and action restrictions are under “访问范围与权限”.
@@ -52,6 +54,8 @@ npm run smoke
 ```
 
 `smoke:personal` exercises the real personal-URL flow with human and outsider fixtures, project/action isolation, Unicode handling, stale-version rejection under the updater lock, compilation, rotation/revocation and credential-log scanning. It creates a reusable human-owned test project and revokes its test links afterward. `smoke` preserves the original stdio integration check. Use only the isolated lab for these scripts.
+
+The native React frontend is built from the pinned image’s source and cached Yarn dependencies in a separate Docker build stage. It uses `layout-react`, `OLPageContentCard`, native form/button components and the `railEntries` extension point. All frontend entrypoints are rebuilt together to keep the shared runtime and manifest consistent; the runtime image retains its original production dependencies. `patches/frontend.py` checks the upstream registration/type files before changing them.
 
 The web extension is bundled from `src/agent` into ignored `extensions/agent-access/mcp.cjs`. The image is built from the pinned CE digest in `Dockerfile`; `patches/install.py` and `patches/history.py` reject unexpected upstream source hashes. The history patch presents Agent actors after user resolution and keeps adjacent human/Agent diff fragments separate. The extension uses existing login/CSRF and project authorization, with no human password or unrestricted browser-session delegation.
 

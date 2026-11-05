@@ -34,7 +34,7 @@ class Browser {
     assert.equal((await this.request("/login", user)).status, 200);
     const page = await this.request("/user/agent");
     assert.equal(page.status, 200);
-    this.csrf = load(await page.text())('meta[name="csrf-token"]').attr(
+    this.csrf = load(await page.text())('meta[name="ol-csrfToken"]').attr(
       "content",
     )!;
     assert.ok(this.csrf);

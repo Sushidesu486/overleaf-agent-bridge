@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import mongoose from "../../app/src/infrastructure/Mongoose.mjs";
 import { User } from "../../app/src/models/User.mjs";
 import SessionManager from "../../app/src/Features/Authentication/SessionManager.mjs";
@@ -9,12 +9,6 @@ import Settings from "@overleaf/settings";
 import bundled from "./mcp.cjs";
 const { AgentService, AgentError, handleMcp, errorResponse } = bundled;
 const publicOrigin = new URL(process.env.OVERLEAF_SITE_URL).origin;
-const files = new Map(
-  ["index.html", "app.js", "style.css"].map((name) => [
-    name,
-    readFileSync(new URL(`./public/${name}`, import.meta.url), "utf8"),
-  ]),
-);
 async function collection(name) {
   await mongoose.connectionPromise;
   return mongoose.connection.db.collection(`agent_${name}`);
@@ -272,13 +266,14 @@ function securePage(res) {
   res.set("X-Content-Type-Options", "nosniff");
   res.set(
     "Content-Security-Policy",
-    "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+    "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
   );
 }
 function loggedIn(req, res, next) {
   if (!SessionManager.isUserLoggedIn(req.session))
-    return req.path === "/user/agent"
-      ? res.redirect("/login?redir=/user/agent")
+    return req.method === "GET" &&
+      req.originalUrl.split("?")[0] === "/user/agent"
+      ? res.redirect(`/login?redir=${encodeURIComponent(req.originalUrl)}`)
       : res.sendStatus(401);
   securePage(res);
   next();
@@ -325,25 +320,13 @@ export default {
     apply(webRouter) {
       webRouter.use("/user/agent", loggedIn);
       webRouter.get("/user/agent", (req, res) => {
-        const csrf = req.csrfToken().replace(
-          /[&<>"']/g,
-          (c) =>
-            ({
-              "&": "&amp;",
-              "<": "&lt;",
-              ">": "&gt;",
-              '"': "&quot;",
-              "'": "&#39;",
-            })[c],
+        res.render(
+          fileURLToPath(new URL("./app/views/index.pug", import.meta.url)),
+          {
+            title: "我的 Agent",
+          },
         );
-        res
-          .type("html")
-          .send(files.get("index.html").replace("__CSRF__", csrf));
       });
-      for (const name of ["app.js", "style.css"])
-        webRouter.get(`/user/agent/assets/${name}`, (req, res) =>
-          res.type(name.endsWith("js") ? "js" : "css").send(files.get(name)),
-        );
       webRouter.get(
         "/user/agent/state",
         route((userId) => service.state(userId)),

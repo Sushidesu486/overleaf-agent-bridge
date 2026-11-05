@@ -6,3 +6,5 @@
 !patches/
 !patches/install.py
 !patches/history.py
+!patches/frontend.py
+!patches/build-frontend.cjs

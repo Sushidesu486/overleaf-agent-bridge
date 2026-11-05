@@ -1,0 +1,13 @@
+extends ../../../../app/views/layout-react
+
+block entrypointVar
+  - entrypoint = 'modules/agent-access/pages/agent'
+
+block vars
+  - isWebsiteRedesign = true
+  - suppressAnalytics = true
+  - metadata.robotsNoindexNofollow = true
+
+block content
+  main#main-content.content.content-alt
+    #agent-page-root

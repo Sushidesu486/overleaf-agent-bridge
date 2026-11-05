@@ -6,4 +6,5 @@
 - HTTP routes are private upstream interfaces. Record the tested image digest and runtime revision; use the target container's source to resolve differences.
 - The MCP process uses stdout exclusively for protocol messages. Diagnostics go to stderr.
 - Read `docs/plan.md` and `docs/progress.md` before extending the adapter. Personal HTTP URLs and native realtime writes are implemented; online Agent presence remains pending.
+- UI changes use the native Overleaf React layout, OL components and editor extension points. Keep presentation in `extensions/agent-access/frontend`; Docker builds the frontend with the pinned upstream source and cached dependencies.
 - Use conventional commits with a model-name Co-authored-by trailer.
