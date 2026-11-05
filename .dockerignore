@@ -1,0 +1,7 @@
+**
+!Dockerfile
+!extensions/
+!extensions/agent-access/
+!extensions/agent-access/**
+!patches/
+!patches/install.py

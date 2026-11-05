@@ -3,3 +3,7 @@ dist/
 .env
 .local/
 *.log
+
+extensions/agent-access/mcp.cjs
+
+._*

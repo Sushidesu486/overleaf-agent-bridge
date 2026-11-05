@@ -1,66 +1,63 @@
 # Overleaf Agent
 
-Independent MCP adapter for a self-hosted Overleaf. The first milestone is an isolated CE lab and a working HTTP login/project/compile loop. See [development plan](docs/plan.md) and [verified progress](docs/progress.md).
+Personal MCP links for self-hosted Overleaf. Sign in to Overleaf, generate a private URL, and paste it into an HTTP MCP client. The Agent reads, edits and compiles as that same human user. Links can be limited to selected projects, made read-only, regenerated or revoked.
 
-## Development on m701
+## Try the m701 lab
 
-Repository: `/home/shouss/projects/overleaf-agent`. Node.js 20.19+, Docker and Compose are required. The lab reserves `127.0.0.1:18080` and uses its own Docker volumes. It has no connection to production databases.
-
-```sh
-npm ci
-npm run lab:init
-docker compose config --quiet
-docker compose up -d --wait --wait-timeout 300
-npm run lab:bootstrap
-npm run diagnose
-npm run smoke
-```
-
-`lab:bootstrap` creates three ordinary lab-only accounts, stores random credentials under `.local/` (0600), and creates one sample project owned by the lab Agent. It does not send emails or grant site-admin privileges. The current test setup does not yet validate human invitation or realtime collaboration.
-
-To browse the lab from your computer:
+Repository: `/home/shouss/projects/overleaf-agent`. The isolated CE 6.3.2 lab listens only on m701's loopback interface. From your computer:
 
 ```sh
 ssh -N -L 18080:127.0.0.1:18080 m701
 ```
 
-Open `http://localhost:18080`. Account details are in the restricted `.local/lab-users.json` on m701; these are test accounts, unrelated to production login.
+Open <http://localhost:18080/user/agent> and sign in. The navbar also has a “我的 Agent” link. Lab credentials are in `.local/lab-users.json` on m701; the first account is `lab-human@example.invalid`. These are separate from production accounts.
 
-## Planned user connection
+Click “生成专属链接”, copy the URL into your client's HTTP MCP configuration, then ask the Agent to call `overleaf_whoami`. The URL works on a machine that can reach that loopback address through the tunnel; a cloud-hosted client needs a publicly reachable HTTPS deployment, which has not been set up yet.
 
-Users will sign in to their existing Overleaf account and generate a personal MCP URL. Pasting that full URL into the client's HTTP MCP configuration will connect the Agent as that user, with no additional browser authorization. The URL contains a secret and maps to a revocable project/action grant. Settings will support revocation, regeneration and optional additional named links. No extra Overleaf account is needed.
+Full links are shown only when generated. Keep them in personal client settings. “重新生成” invalidates the old URL; “停用” rejects subsequent requests. Already submitted edits remain. Optional project and action restrictions are under “访问范围与权限”.
 
-The URL must be treated as a credential. The server will store secret digests, redact credential paths before logging, and enforce current Overleaf permissions on every operation. Transport uses Streamable HTTP with custom personal-key authentication; actual client compatibility remains to be tested. Edits retain the human identity, with an Agent connection label added through an Overleaf extension.
+## Available HTTP tools
 
-This flow is the next milestone and is not available in the running prototype yet. The separate lab Agent account is only a test fixture. See the revised [authorization design](docs/plan.md#4-用户登录后的-agent-授权).
+| Tool | Behavior |
+| --- | --- |
+| `overleaf_whoami` | User identity, grant scope and capabilities; no credential. |
+| `overleaf_list_projects` | Projects allowed by both the link and the user's current permissions. |
+| `overleaf_get_project_tree` | Text-document and file IDs and paths. |
+| `overleaf_read_document` | Text, current version and OT type. |
+| `overleaf_edit_document` | Unique text replacement with expected version, operation UUID and optional dry-run. |
+| `overleaf_compile` | Build status, output filenames, editor link and input-state metadata. |
 
-## Current development MCP
+Edits appear live in the web editor and retain the human user's attribution. Current ShareJS projects support Chinese but reject emoji/non-BMP writes before submission because upstream sanitizes those characters. The native online-member/cursor “user's Agent” badge is a later step; `whoami` reports `presenceLabel: false`. History-OT support uses the native updater; the current lab fixture exercises ShareJS.
 
-Run from the repository: `npm run mcp` (the script runner may print a banner, so use the direct Node command in actual clients). A stdio client should launch:
+## Develop and verify
 
-```json
-{
-  "command": "node",
-  "args": ["/home/shouss/projects/overleaf-agent/dist/src/server.js"],
-  "env": {
-    "OVERLEAF_AGENT_CONFIG": "/home/shouss/projects/overleaf-agent/.local/client.json"
-  }
-}
-```
-
-Run `npm run build` first. This command runs on m701; use a remote agent environment or an SSH stdio wrapper that keeps login banners off stdout. The server is not an unauthenticated HTTP service.
-
-Current tools: `overleaf_status`, `overleaf_list_projects`, `overleaf_compile`. Project access requires both the configured allowlist and Overleaf's account permission. Empty allowlists expose no projects. Session failure is reported rather than replaying a mutation.
-
-## Checks and lifecycle
+Node.js 20.19+, Docker and Compose are required.
 
 ```sh
+npm ci
+npm run lab:init
+npm run build:extension
+docker compose build overleaf
+docker compose config --quiet
+docker compose up -d --wait --wait-timeout 300
+npm run lab:bootstrap
 npm run typecheck
-npm test
 npm run build
+npm test
+npm run smoke:personal
 npm run smoke
-# Stop this lab without removing its data:
-docker compose stop
 ```
 
-Do not use `down -v` for normal shutdown. Credentials and database volumes are not Git artifacts. The initial repository is private/unpublished; an open-source license has not yet been selected. No third-party MCP implementation has been copied into it.
+`smoke:personal` exercises the real personal-URL flow with human and outsider fixtures, project/action isolation, Unicode handling, stale-version rejection under the updater lock, compilation, rotation/revocation and credential-log scanning. It creates a reusable human-owned test project and revokes its test links afterward. `smoke` preserves the original stdio integration check. Use only the isolated lab for these scripts.
+
+The web extension is bundled from `src/agent` into ignored `extensions/agent-access/mcp.cjs`. The image is built from the pinned CE digest in `Dockerfile`; `patches/install.py` rejects unexpected upstream source hashes. The extension uses existing login/CSRF and project authorization, with no human password or unrestricted browser-session delegation.
+
+Link digests and scoped grants live in the application's `agent_grants` collection; edit operation records live in `agent_operations`. Mongo backups include both. The HTTP transport is stateless: every request carries and validates the personal credential. Nginx removes the secret path before forwarding and suppresses credential-route access/error logging; the module removes the private credential header before downstream logging. A future public gateway needs the same redaction rules. Compile input metadata describes observed versions; it does not pin a multi-document snapshot.
+
+To rebuild after changes, run `npm run build:extension`, `docker compose build overleaf`, then `docker compose up -d --no-deps --wait overleaf`. Stop without removing data using `docker compose stop`. Roll back to the pinned upstream image in `Dockerfile` to disable the extension while preserving project data and dormant grant collections.
+
+## Local stdio diagnostic
+
+The original three-tool stdio adapter remains available for protocol debugging. After `npm run build`, launch `node dist/src/server.js` with `OVERLEAF_AGENT_CONFIG` pointing to a mode-0600 lab configuration. It uses its own explicit project allowlist. The personal HTTP flow does not use those credentials.
+
+See [plan](docs/plan.md) and [verified progress](docs/progress.md). The development repository is private/unpublished; the standalone package license has not yet been selected. The image contains Overleaf and version-specific source patches; distribution must preserve upstream licensing requirements.

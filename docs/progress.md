@@ -1,46 +1,43 @@
-# P0 progress
+# Development progress
 
-Verified 2026-11-05T17:24:53+08:00 on m701. Source: Compose health, container image metadata, runtime version commands and the real MCP smoke test.
+Personal-URL milestone verified 2026-11-05T19:58:35+08:00 on m701. Sources: Compose health, official MCP SDK clients, the real Overleaf smoke script and Chrome UI/editor interaction. Old production Overleaf and its databases remain unchanged.
 
-## Running lab
+## Delivered
 
-- Repository: `/home/shouss/projects/overleaf-agent`, branch `main`; no Git remote configured.
-- Overleaf CE 6.3.2 on `127.0.0.1:18080`; image digest pinned in `compose.yaml`.
-- Actual image label `com.overleaf.ce.revision`: `370f4763da4bc910da8309c9a71c85ecbe39f6a7`. This differs from the earlier main-branch research revision; use the running image source for further protocol work.
-- TeX Live 2026; MongoDB 8.0.34 (single-member replica set); Redis 7.4.12 with AOF enabled. All three services are healthy.
-- Independent Docker network and volumes; database ports are not published; CPU and memory limits are configured. No GPU requested.
-- Three ordinary lab accounts: human, Agent and unrelated outsider. Their randomly generated credentials are in `.local/lab-users.json`, mode 0600. One sample project is owned by the Agent. These accounts are unrelated to production identities.
+- Repository `/home/shouss/projects/overleaf-agent`, branch `main`, no Git remote configured. User-facing page: `http://localhost:18080/user/agent` through an SSH tunnel.
+- Human login → personal URL generation → direct HTTP MCP connection. Uses the same human identity, without an additional Overleaf account or a client OAuth round trip.
+- Named grants support all current user-accessible projects or a selected subset, read/edit/compile scopes, last-use time, rotation and revocation. Secrets are displayed once and stored only as digests.
+- Six HTTP tools: identity, project list, project tree, versioned document reads, unique-text replacement, compilation. The old three-tool stdio adapter remains available.
+- Edits use the native updater's OT, history and broadcast path. A pinned source patch adds expectedVersion comparison inside its existing document lock. The adapter reauthorizes immediately before submitting, rejects unknown document types, and reserves operation IDs so interrupted submissions are not replayed.
+- Compile responses contain build ID, observed root-document version, observation time, available native history version, and `snapshotPinned: false` for live project inputs.
+- Original lab Agent account remains only a fixture for old stdio tests. Personal-URL tests use `lab-human@example.invalid` and the unrelated human fixture. Human-owned sample project: `6aec6b41a662231c7da0943a`.
 
-## Implemented and verified
+## Verification
 
-- TypeScript project with locked dependencies, HTTP cookie jar and CSRF login, explicit project allowlist, project listing, compile and artifact download.
-- Three stdio MCP tools: `overleaf_status`, `overleaf_list_projects`, `overleaf_compile`.
-- No credential-carrying redirects or automatic mutation retries. Stdout contains only protocol messages when the server is launched directly with Node.
-- `npm run typecheck`, `npm run build`, `npm test`: passed (three tests covering session/CSRF, endpoint/project constraints and a real stdio MCP exchange against a fixture backend).
-- `npm run lab:bootstrap`, `npm run diagnose`, `npm run smoke`: passed against the actual lab. MCP client handshake/listing succeeded; one project was visible; compile returned success; a 248,689-byte artifact started with `%PDF-`.
-- A project outside the local allowlist was rejected. An unrelated Overleaf account with that project placed in its local allowlist still saw no project and was denied compilation by Overleaf itself.
-- CE account creation requires `analyticsId`; the lab bootstrap now supplies a generated UUID. It reuses existing lab accounts and does not reset their passwords.
+- Typecheck, TypeScript build and all seven tests passed. The targeted new revocation test covers a grant withdrawn during backend preparation, before the actual write.
+- `npm run smoke:personal`: human-account MCP connection, scoped project access, Chinese replacement, dry-run, stale-version rejection at both MCP and updater-lock levels, compilation, read-only/outsider denial, CSRF, rotation, revocation and credential-log scan passed. Each run revokes its test links.
+- `npm run smoke`: original stdio handshake/list/compile, real PDF header (248,689 bytes), allowlist rejection and unrelated-account denial passed.
+- Chrome: actual login and link generation, desktop/mobile page inspection, live update in the open CodeMirror editor, matching human `user_id` in the received update, and UI revocation passed. A raw HTTP MCP client in that check used the exact generated URL; no extra Authorization header was needed.
+- Code-review Standards axis: no actionable violation. Spec axis found three issues (late revocation, unknown OT types, compile input state); all three were fixed and the reviewer confirmed closure.
+- `docker compose config --quiet` and diff whitespace checks passed. Compose services are healthy.
 
-## Image transfer note
+## Runtime and implementation decisions
 
-Harbor returned an incomplete large layer and then Docker Hub upstream rate limiting. Direct long-running Docker downloads also stalled. The official Docker Hub/ECR blobs were fetched in ranges, each manifest/config/layer SHA-256 was verified against the pinned manifest, then imported as OCI archives with the original digest references. Redis was pulled through Harbor. The helper and archives were temporary development artifacts; the normal Compose workflow remains unchanged. Production K8s delivery will use the normal project registry path.
+- Base: Overleaf CE 6.3.2, upstream image digest `sha256:d17e196b04222837440b5efb2890864eb200a2e9341e434c0e6bd57a61011cbb`; revision `370f4763da4bc910da8309c9a71c85ecbe39f6a7`.
+- Derived image: `overleaf-agent-lab:6.3.2-dev`, local image ID `sha256:0a14f3de38af03bd996e5994705f49379b0163d9e94f88ec805b603dbd0819b5`. Dockerfile and source-hash checks define how to reproduce the extension on this base.
+- TeX Live 2026, MongoDB 8.0.34 (single-member replica set), Redis 7.4.12/AOF. Baseline versions were verified at 2026-11-05T17:24:53+08:00; this milestone keeps those base dependencies.
+- The first implementation runs a separately bundled MCP module inside Overleaf Web. This gives the authorization code direct access to native user/project permission checks and avoids creating unrestricted user sessions. A separate gateway can be introduced if operational needs justify it later.
+- Nginx suppresses credential-route access/error logs and forwards a fixed internal URL. The extension consumes and removes the credential header. HTTP MCP is stateless and revalidates every request. Grant and edit-operation metadata are in the new `agent_grants` and `agent_operations` collections within this lab database.
+- Independent Docker volumes/network; only `127.0.0.1:18080` is published, no database port or GPU. Stop with `docker compose stop` to preserve data.
 
-## Decision update: personal MCP URLs (2026-11-05, Asia/Shanghai)
+## Remaining work
 
-The user clarified that each logged-in human should generate a personal MCP URL and paste it directly into an Agent client. The URL carries a random secret, mapped to the existing human account and a revocable grant. The client does not need a second browser authorization flow. This supersedes the earlier OAuth installation-link interpretation. No separate Overleaf Agent account is required; the existing lab Agent account remains a test fixture.
+- Native online-member/cursor Agent label; current history and live updates retain the human user ID. `overleaf_whoami` explicitly reports `presenceLabel: false`.
+- Real configuration checks in students' chosen MCP applications. Official SDK and direct HTTP clients are verified; application-specific OAuth requirements or URL-import behavior are not yet tested.
+- ShareJS replaces surrogate code units upstream. The adapter rejects emoji/non-BMP writes before submission, while Chinese works. The native history-OT path is allowed but still needs its own real-project fixture before broad use.
+- HTTPS domain, production gateway redaction, K8s delivery, quotas and broader user rollout. Cloud-hosted clients cannot reach this loopback-only lab.
+- Optional file creation, artifact/log retrieval, native review UI, IPA integration and old-instance migration remain separate milestones. Compile filenames and the editor link are returned; the new HTTP tools do not yet download PDFs.
 
-The intended flow is: sign in to Overleaf → generate a personal MCP URL → paste it into the client's HTTP MCP configuration → connect as that human → revoke or regenerate in settings. The full URL is a credential. Store only its secret digest server-side; redact it at the gateway and application before logging. Each request must validate both the grant and current Overleaf permissions, including on active sessions.
+## Image transfer history
 
-Transport will use Streamable HTTP with custom personal-key authentication, distinct from the standard MCP OAuth flow. Verify full-URL configuration with actual clients before claiming compatibility. A named link identifies a user-issued grant; a client name self-reported by its holder is not a verified application identity.
-
-The running prototype still has only stdio and lab credential configuration. Personal HTTP URLs, delegated identity and realtime edits are not implemented. Native Overleaf names and edit attribution derive from the authenticated user; displaying an Agent label for that same user requires trusted connection metadata and an Overleaf service/UI extension.
-
-## Next: P1 / remaining P0 protocol work
-
-1. Add an authenticated, CSRF-protected Overleaf page to generate, list, revoke and reset personal URL credentials. Store high-entropy secret digests and their user/project/action grants.
-2. Implement HTTP MCP with URL-key validation on every request and session-to-grant binding. Add scoped internal delegation under the same human user with live project permission checks.
-3. Verify two human users and one actual client: connect using only the personal URL, list permitted projects, identify the user/grant, revoke, reset and reject cross-user sessions. Check gateway/application logs with a test secret. Preserve stdio for lab diagnostics.
-4. Probe target-image Socket.IO document versions and OT; carry delegated identity and connection metadata through realtime permission checks before implementing editing and Agent presence labels. Revocation must stop subsequent active document operations.
-5. Add a second client and concurrent-edit/reconnect checks as described in the revised development plan.
-
-Old Overleaf, production accounts, databases and GitOps manifests were not changed. Lab data remains in its own volumes; use `docker compose stop` to stop without removing it.
+The initial base-image pull encountered incomplete Harbor layers and Docker Hub rate limiting. Official Docker Hub/ECR blobs were fetched in ranges and every manifest/config/layer SHA-256 verified before importing OCI archives. Scratch archives were removed. Current extension builds use that cached pinned base; future K8s delivery will use the normal project registry path.

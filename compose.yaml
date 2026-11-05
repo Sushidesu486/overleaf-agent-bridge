@@ -33,7 +33,8 @@ services:
       timeout: 3s
       retries: 20
   overleaf:
-    image: docker.io/sharelatex/sharelatex@sha256:d17e196b04222837440b5efb2890864eb200a2e9341e434c0e6bd57a61011cbb
+    build: .
+    image: overleaf-agent-lab:6.3.2-dev
     depends_on:
       mongo-init: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
@@ -45,6 +46,7 @@ services:
     environment:
       OVERLEAF_APP_NAME: Overleaf Agent Lab
       OVERLEAF_SITE_URL: http://localhost:18080
+      OVERLEAF_HEADER_EXTRAS: '[{"text":"我的 Agent","url":"/user/agent","class":"subdued"}]'
       OVERLEAF_MONGO_URL: mongodb://mongo:27017/sharelatex?replicaSet=overleaf
       OVERLEAF_REDIS_HOST: redis
       REDIS_HOST: redis
