@@ -25,11 +25,20 @@ Verified 2026-11-05T17:24:53+08:00 on m701. Source: Compose health, container im
 
 Harbor returned an incomplete large layer and then Docker Hub upstream rate limiting. Direct long-running Docker downloads also stalled. The official Docker Hub/ECR blobs were fetched in ranges, each manifest/config/layer SHA-256 was verified against the pinned manifest, then imported as OCI archives with the original digest references. Redis was pulled through Harbor. The helper and archives were temporary development artifacts; the normal Compose workflow remains unchanged. Production K8s delivery will use the normal project registry path.
 
+## Decision update: delegated access (2026-11-05, Asia/Shanghai)
+
+The user chose login-based delegation: one human Overleaf account, separately revocable grants for their Agent clients. No additional Overleaf Agent account is required in the product. The existing lab Agent account remains a protocol-test fixture; it does not define the product identity model.
+
+The intended flow is: sign in to Overleaf → open “Connect my Agent” → import the shared MCP endpoint → authorize the client and selected projects/actions → manage or revoke the grant in settings. Installation links contain no long-lived credentials. The client completes HTTP MCP OAuth authorization; existing browser login supplies the verified user identity.
+
+The running prototype still has only stdio and lab credential configuration. HTTP MCP, authorization links and delegated identity are not implemented. Native Overleaf names and edit attribution derive from the authenticated user; displaying an Agent label for that same user requires trusted connection metadata and an Overleaf service/UI extension.
+
 ## Next: P1 / remaining P0 protocol work
 
-1. Probe the target image's Socket.IO project/document join, document versions and OT format.
-2. Verify human invitation, Agent presence and display name in the web editor, and edit attribution.
-3. Implement realtime reads, then local patches and concurrent-edit/reconnect tests.
-4. Shared HTTP MCP, user binding, OAuth and revocation remain later milestones. Current configuration is a single local development identity, not a deployed multi-user service.
+1. Implement the shared HTTP MCP transport, authenticated Overleaf connection/consent page, and OAuth authorization-code flow with PKCE using a maintained authorization component.
+2. Add scoped internal delegation under the existing human user: enforce current Overleaf project permissions, grant project/action scope, expiry and revocation. Do not turn grants into unrestricted normal user sessions.
+3. Verify with two human users and one actual client: connect without copying passwords/Cookies, list permitted projects, identify user/client, and revoke. Preserve the current stdio adapter as a lab diagnostic path.
+4. Probe target-image Socket.IO document versions and OT; carry delegated identity and connection metadata through realtime permission checks before implementing editing and Agent presence labels. Revocation must also stop active document operations.
+5. Add a second client and concurrent-edit/reconnect checks as described in the revised development plan.
 
 Old Overleaf, production accounts, databases and GitOps manifests were not changed. Lab data remains in its own volumes; use `docker compose stop` to stop without removing it.

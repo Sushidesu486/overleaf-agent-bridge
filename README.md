@@ -26,7 +26,13 @@ ssh -N -L 18080:127.0.0.1:18080 m701
 
 Open `http://localhost:18080`. Account details are in the restricted `.local/lab-users.json` on m701; these are test accounts, unrelated to production login.
 
-## MCP
+## Planned user connection
+
+Users will sign in to their existing Overleaf account and open “Connect my Agent”, then import a shared HTTPS MCP address into their client and authorize selected projects and actions. Each client receives a separately revocable grant; no additional Overleaf account is needed. Agent labels belong to connections while edits retain the human user's identity.
+
+This flow is the next milestone and is not available in the running prototype yet. The separate lab Agent account is only a test fixture. See the revised [authorization design](docs/plan.md#4-用户登录后的-agent-授权).
+
+## Current development MCP
 
 Run from the repository: `npm run mcp` (the script runner may print a banner, so use the direct Node command in actual clients). A stdio client should launch:
 
