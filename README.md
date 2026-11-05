@@ -28,7 +28,9 @@ Open `http://localhost:18080`. Account details are in the restricted `.local/lab
 
 ## Planned user connection
 
-Users will sign in to their existing Overleaf account and open “Connect my Agent”, then import a shared HTTPS MCP address into their client and authorize selected projects and actions. Each client receives a separately revocable grant; no additional Overleaf account is needed. Agent labels belong to connections while edits retain the human user's identity.
+Users will sign in to their existing Overleaf account and generate a personal MCP URL. Pasting that full URL into the client's HTTP MCP configuration will connect the Agent as that user, with no additional browser authorization. The URL contains a secret and maps to a revocable project/action grant. Settings will support revocation, regeneration and optional additional named links. No extra Overleaf account is needed.
+
+The URL must be treated as a credential. The server will store secret digests, redact credential paths before logging, and enforce current Overleaf permissions on every operation. Transport uses Streamable HTTP with custom personal-key authentication; actual client compatibility remains to be tested. Edits retain the human identity, with an Agent connection label added through an Overleaf extension.
 
 This flow is the next milestone and is not available in the running prototype yet. The separate lab Agent account is only a test fixture. See the revised [authorization design](docs/plan.md#4-用户登录后的-agent-授权).
 
