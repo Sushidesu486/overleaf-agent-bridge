@@ -11,6 +11,8 @@ import OLFormCheckbox from "@/shared/components/ol/ol-form-checkbox";
 import OLBadge from "@/shared/components/ol/ol-badge";
 import Notification from "@/shared/components/notification";
 import useWaitForI18n from "@/shared/hooks/use-wait-for-i18n";
+import useThemedPage from "@/shared/hooks/use-themed-page";
+import ThemeToggle from "@/features/project-list/components/sidebar/theme-toggle";
 import {
   getJSON,
   postJSON,
@@ -40,6 +42,7 @@ const actionNames: Record<string, string> = {
 };
 
 export default function AgentPage() {
+  useThemedPage();
   const { isReady } = useWaitForI18n();
   return (
     <div className="container">
@@ -188,7 +191,12 @@ function AgentSettings() {
   return (
     <>
       <div className="page-header">
-        <h1>我的 Agent</h1>
+        <div className="d-flex flex-wrap align-items-center justify-content-between gap-3">
+          <h1>我的 Agent</h1>
+          <div className="agent-theme-toggle">
+            <ThemeToggle />
+          </div>
+        </div>
         <p>管理你的 MCP 连接，让 Agent 使用你的账号协作编辑 LaTeX。</p>
         {state && (
           <p className="small" id="identity">

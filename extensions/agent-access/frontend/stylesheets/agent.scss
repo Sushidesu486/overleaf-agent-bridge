@@ -1,0 +1,81 @@
+// Extend the native website layout with the same theme tokens and component
+// mixins used by the project dashboard, without changing other account pages.
+body:has(#agent-page-root) {
+  @include themed-links;
+
+  background-color: var(--bg-primary-themed);
+  color: var(--content-primary-themed);
+
+  #main-content {
+    background-color: var(--bg-primary-themed);
+  }
+
+  footer.site-footer {
+    @include themed-links;
+    background-color: var(--bg-primary-themed);
+    color: var(--content-secondary-themed);
+    border-color: var(--border-divider-themed);
+  }
+
+  #agent-page-root {
+    --bs-border-color: var(--border-divider-themed);
+
+    .card {
+      --bs-card-bg: var(--bg-primary-themed);
+      --bs-card-color: var(--content-primary-themed);
+    }
+
+    h1,
+    h3,
+    h6,
+    .h6,
+    .form-label,
+    .form-check-label,
+    legend {
+      color: var(--content-primary-themed);
+    }
+
+    // Native text-input selectors require an explicit type and omit password
+    // fields. The masked MCP URL must use the same theme in both states.
+    .form-control {
+      color: var(--input-field-color);
+      background-color: var(--input-field-bg);
+      border-color: var(--input-field-border-color);
+
+      &:focus {
+        border-color: var(--input-border-hover);
+      }
+    }
+
+    .agent-theme-toggle {
+      width: 16rem;
+      max-width: 100%;
+
+      .theme-toggle {
+        padding: 0;
+        color: var(--content-primary-themed);
+      }
+    }
+  }
+
+  &[data-theme="default"] {
+    .navbar {
+      @include navbar-dark;
+    }
+    .table {
+      @include dark-table;
+    }
+    .notification {
+      @include dark-notification;
+    }
+  }
+}
+
+.agent-project-panel {
+  @include themed-links;
+  color: var(--content-primary-themed);
+
+  h5 {
+    color: var(--content-primary-themed);
+  }
+}

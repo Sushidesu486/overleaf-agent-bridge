@@ -9,7 +9,7 @@ function AgentPanel() {
   return (
     <>
       <RailPanelHeader title="我的 Agent" />
-      <div className="p-3">
+      <div className="agent-project-panel p-3">
         <p className="small mb-1">当前项目</p>
         <h5 className="text-break">{name}</h5>
         <p>让你的 Agent 读取、编辑并编译这个项目。</p>

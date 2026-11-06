@@ -8,6 +8,10 @@ block vars
   - suppressAnalytics = true
   - metadata.robotsNoindexNofollow = true
 
+block append meta
+  meta(name='ol-userSettings' data-type='json' content=userSettings)
+  meta(name='ol-overallThemes' data-type='json' content=overallThemes)
+
 block content
   main#main-content.content.content-alt
     #agent-page-root

@@ -3,6 +3,7 @@ import mongoose from "../../app/src/infrastructure/Mongoose.mjs";
 import { User } from "../../app/src/models/User.mjs";
 import SessionManager from "../../app/src/Features/Authentication/SessionManager.mjs";
 import ProjectGetter from "../../app/src/Features/Project/ProjectGetter.mjs";
+import UserSettingsHelper from "../../app/src/Features/Project/UserSettingsHelper.mjs";
 import AuthorizationManager from "../../app/src/Features/Authorization/AuthorizationManager.mjs";
 import CompileManager from "../../app/src/Features/Compile/CompileManager.mjs";
 import Settings from "@overleaf/settings";
@@ -319,13 +320,33 @@ export default {
   router: {
     apply(webRouter) {
       webRouter.use("/user/agent", loggedIn);
-      webRouter.get("/user/agent", (req, res) => {
-        res.render(
-          fileURLToPath(new URL("./app/views/index.pug", import.meta.url)),
-          {
-            title: "我的 Agent",
-          },
-        );
+      webRouter.get("/user/agent", async (req, res, next) => {
+        try {
+          const user = await User.findById(
+            SessionManager.getLoggedInUserId(req.session),
+            { ace: 1, signUpDate: 1 },
+          )
+            .lean()
+            .exec();
+          if (!user) return res.sendStatus(401);
+          const userSettings = await UserSettingsHelper.buildUserSettings(
+            req,
+            res,
+            user,
+          );
+          res.render(
+            fileURLToPath(new URL("./app/views/index.pug", import.meta.url)),
+            {
+              title: "我的 Agent",
+              userSettings,
+              initialTheme: UserSettingsHelper.getInitialTheme(
+                userSettings.overallTheme,
+              ),
+            },
+          );
+        } catch (error) {
+          next(error);
+        }
       });
       webRouter.get(
         "/user/agent/state",
