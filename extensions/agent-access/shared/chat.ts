@@ -13,6 +13,23 @@ export type ChatPermission = {
   title: string;
   options: { optionId: string; name: string; kind: string }[];
 };
+export type SessionRecovery =
+  | { mode: "new" | "resumed" }
+  | {
+      mode: "rebuilt";
+      reason: "missing" | "unsupported" | "changed" | "unavailable";
+    };
+export function recoveryMessage(recovery: SessionRecovery): string {
+  if (recovery.mode !== "rebuilt")
+    return recovery.mode === "new" ? "新会话已就绪" : "已恢复本机 Agent 原会话";
+  const reason = {
+    missing: "本机原会话已不存在",
+    unsupported: "当前 Agent 不支持恢复会话",
+    changed: "Agent 或对话绑定已变更",
+    unavailable: "此设备没有可恢复的会话索引",
+  }[recovery.reason];
+  return `${reason}，将用最近消息继续对话`;
+}
 export type ChatSession = {
   id: string;
   userId: string;
@@ -32,6 +49,7 @@ export type ChatSession = {
   permission: ChatPermission | null;
   agentState?: "preparing" | "ready" | "error";
   agentError?: string;
+  recovery?: SessionRecovery;
   revision: number;
   createdAt: string;
   updatedAt: string;

@@ -346,7 +346,13 @@ test("connection prepares a scoped conversation and readiness is isolated by con
     f.chat.prepared(other.credential, { sessionId: session.id }),
     /会话不存在/,
   );
-  await f.chat.prepared(c.credential, { sessionId: session.id });
+  await f.chat.prepared(c.credential, {
+    sessionId: session.id,
+    recovery: { mode: "resumed" },
+  });
+  assert.deepEqual((await f.chat.session("alice", session.id)).recovery, {
+    mode: "resumed",
+  });
   assert.equal((await f.chat.session("alice", session.id)).agentState, "ready");
   await attached.disconnect();
   await f.chat.attach(
@@ -361,6 +367,7 @@ test("connection prepares a scoped conversation and readiness is isolated by con
   await f.chat.prepareConnection(c.credential);
   assert.equal((await f.chat.sessions("alice", project)).length, 1);
   assert.equal(commands[1].type, "prepare");
+  assert.equal((await f.chat.session("alice", session.id)).recovery, undefined);
   await f.chat.prepared(c.credential, {
     sessionId: session.id,
     error: "Please log in locally",

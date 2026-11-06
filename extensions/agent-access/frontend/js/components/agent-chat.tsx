@@ -17,6 +17,7 @@ import {
   AgentConversationHistory,
   AgentConversationSettings,
 } from "./agent-conversations";
+import { recoveryMessage } from "../../../shared/chat";
 import type {
   Attachment,
   ChatSession,
@@ -493,6 +494,15 @@ export default function AgentChat() {
         {session?.agentError && (
           <Notification type="error" content={session.agentError} />
         )}
+        {active?.online &&
+          session?.agentState === "ready" &&
+          session.recovery &&
+          session.recovery.mode !== "new" && (
+            <p className="small agent-recovery-status" role="status">
+              {recoveryMessage(session.recovery)}。
+              {session.status === "interrupted" && "中断的任务需由你重新发起。"}
+            </p>
+          )}
         {!streaming && (
           <p className="small" role="status">
             正在恢复消息连接…

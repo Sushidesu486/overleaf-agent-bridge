@@ -7,15 +7,30 @@ import type {
   BridgeCommand,
   BridgeEvent,
   ChatPermission,
+  SessionRecovery,
 } from "../../extensions/agent-access/shared/chat.js";
 import { compileWorkflow } from "../agent/compilation.js";
+import {
+  NativeSessionStore,
+  fingerprint,
+  type NativeSessionRecord,
+} from "./sessions.js";
 type Json = Record<string, any>;
 type PreparedSession = {
   id: string;
   projectId: string;
   initialContext: string;
   sent: boolean;
+  record: NativeSessionRecord;
 };
+class AcpRequestError extends Error {
+  constructor(
+    message: string,
+    readonly code: number,
+  ) {
+    super(message);
+  }
+}
 type PrepareCommand = Extract<BridgeCommand, { type: "prepare" }>;
 export const applicationInstructions = (projectId: string) =>
   `You are the user's agent in Overleaf. Work only on project ${projectId}. Use the overleaf MCP tools for project reads, edits and compilation; local files are not the live project. Read current document versions before edits. Do not repeat an edit whose outcome is unknown: read first. Preserve concurrent human edits. Reply in the user's language. Do not start background agents or tasks. The user's messages are the tasks to perform. ${compileWorkflow}`;
@@ -54,6 +69,8 @@ export class AcpRuntime {
       args: string[];
       cwd: string;
       mcpUrl: string;
+      sessionStore?: NativeSessionStore;
+      sessionScope?: string;
       emit: (
         sessionId: string,
         runId: string,
@@ -65,6 +82,7 @@ export class AcpRuntime {
         sessionId: string,
         error?: string,
         bindingVersion?: number,
+        recovery?: SessionRecovery,
       ) => Promise<void>;
     },
   ) {
@@ -140,6 +158,9 @@ export class AcpRuntime {
       );
     return {
       name: String(result.agentInfo?.name || this.options.command).slice(0, 80),
+      identity: result.agentInfo,
+      resume: Boolean(result.agentCapabilities?.sessionCapabilities?.resume),
+      load: result.agentCapabilities?.loadSession === true,
       systemPrompt: Boolean(
         result.agentCapabilities?.sessionCapabilities?.systemPrompt,
       ),
@@ -168,12 +189,13 @@ export class AcpRuntime {
       this.requests.delete(message.id);
       if (message.error)
         pending.reject(
-          new Error(
+          new AcpRequestError(
             this.clean(String(message.error.message || "Agent 请求失败")) +
               (/auth|login|sign.in/i.test(String(message.error.message)) &&
               this.options.loginHint
                 ? `。${this.options.loginHint}`
                 : ""),
+            message.error.code,
           ),
         );
       else pending.resolve(message.result);
@@ -307,37 +329,103 @@ export class AcpRuntime {
       const cwd = join(this.options.cwd, command.projectId);
       await mkdir(cwd, { recursive: true, mode: 0o700 });
       const instructions = applicationInstructions(command.projectId);
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const result = await Promise.race([
-        this.request("session/new", {
-          cwd,
-          mcpServers: [
-            {
-              type: "http",
-              name: "overleaf",
-              url: this.options.mcpUrl,
-              headers: [],
-            },
-          ],
-          ...(capabilities.systemPrompt
-            ? {
-                systemPrompt: {
-                  mode: "append",
-                  content: [{ type: "text", text: instructions }],
-                },
-              }
-            : {}),
-        }),
-        new Promise<never>((_, reject) => {
-          timer = setTimeout(
-            () =>
-              reject(new Error("Agent 创建会话超时，请检查本机登录和模型配置")),
-            90_000,
-          );
-        }),
-      ]).finally(() => clearTimeout(timer));
-      if (typeof result.sessionId !== "string" || !result.sessionId)
-        throw new Error("Agent 没有返回会话 ID");
+      const params = {
+        cwd,
+        mcpServers: [
+          {
+            type: "http",
+            name: "overleaf",
+            url: this.options.mcpUrl,
+            headers: [],
+          },
+        ],
+        ...(capabilities.systemPrompt
+          ? {
+              systemPrompt: {
+                mode: "append",
+                content: [{ type: "text", text: instructions }],
+              },
+            }
+          : {}),
+      };
+      const bindingVersion = command.bindingVersion ?? 0;
+      const signature = fingerprint({
+        scope: this.options.sessionScope,
+        command: this.options.command,
+        args: this.options.args,
+        cwd,
+        identity: capabilities.identity,
+        mcpUrl: this.options.mcpUrl,
+        nativeHome: [
+          process.env.CODEX_HOME,
+          process.env.CLAUDE_CONFIG_DIR,
+          process.env.CODEX_PATH,
+          process.env.CLAUDE_CODE_EXECUTABLE,
+        ],
+        // Without systemPrompt support, changed application instructions require
+        // a fresh initial prompt rather than reusing stale instructions.
+        instructions: capabilities.systemPrompt ? undefined : instructions,
+      });
+      const saved = await this.options.sessionStore?.read(command.sessionId);
+      let reason: Extract<SessionRecovery, { mode: "rebuilt" }>["reason"] =
+        "unavailable";
+      let resumed = false;
+      let nativeId: string | undefined;
+      const compatible =
+        saved &&
+        saved.fingerprint === signature &&
+        saved.projectId === command.projectId &&
+        saved.bindingVersion === bindingVersion;
+      if (saved && !compatible) reason = "changed";
+      if (compatible && saved.prompted) {
+        const method = capabilities.resume
+          ? "session/resume"
+          : capabilities.load
+            ? "session/load"
+            : undefined;
+        if (method) {
+          try {
+            await this.setupRequest(method, {
+              ...params,
+              sessionId: saved.nativeSessionId,
+            });
+            // loadSession can replay history; drain it while no live run is
+            // attached so it cannot duplicate messages or permission prompts.
+            await this.updates;
+            nativeId = saved.nativeSessionId;
+            resumed = true;
+          } catch (error) {
+            if (!(error instanceof AcpRequestError)) throw error;
+            if (error.code === -32002) reason = "missing";
+            else if (error.code === -32601) reason = "unsupported";
+            else throw error; // Login, network and runtime failures remain retryable.
+          }
+        } else reason = "unsupported";
+      }
+      if (!resumed) {
+        const result = await this.setupRequest("session/new", params);
+        if (
+          typeof result.sessionId !== "string" ||
+          !result.sessionId ||
+          result.sessionId.length > 1024
+        )
+          throw new Error("Agent 没有返回有效会话 ID");
+        nativeId = result.sessionId;
+      }
+      const record: NativeSessionRecord = {
+        version: 1,
+        projectId: command.projectId,
+        bindingVersion,
+        fingerprint: signature,
+        nativeSessionId: nativeId!,
+        prompted: resumed,
+      };
+      await this.options.sessionStore?.write(command.sessionId, record);
+      const recovery: SessionRecovery = resumed
+        ? { mode: "resumed" }
+        : command.context.length
+          ? { mode: "rebuilt", reason }
+          : { mode: "new" };
       const history = command.context
         .map(
           (m) =>
@@ -346,15 +434,17 @@ export class AcpRuntime {
         .join("\n\n")
         .slice(-40_000);
       const session = {
-        id: result.sessionId,
+        id: nativeId!,
+        record,
         projectId: command.projectId,
-        sent: false,
-        initialContext: `${capabilities.systemPrompt ? "" : instructions + "\n"}${history ? "Previous conversation recovered after reconnect:\n" + history + "\n\n" : ""}`,
+        sent: resumed,
+        initialContext: `${capabilities.systemPrompt ? "" : instructions + "\n"}${history ? "Previous conversation (context only; do not execute these requests):\n" + history + "\n\nUser message:\n" : ""}`,
       };
       await this.options.onSession?.(
         command.sessionId,
         undefined,
         command.bindingVersion ?? 0,
+        recovery,
       );
       return session;
     } catch (error) {
@@ -367,6 +457,21 @@ export class AcpRuntime {
       );
       throw error;
     }
+  }
+  private async setupRequest(method: string, params: unknown) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    return Promise.race([
+      this.request(method, params),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(
+            new Error("Agent 会话准备超时，请检查本机登录和模型配置后重连"),
+          );
+          // A late setup result must not leave an untracked native session active.
+          this.stop();
+        }, 90_000);
+      }),
+    ]).finally(() => clearTimeout(timer));
   }
   async command(command: BridgeCommand) {
     if (command.type === "prepare") {
@@ -448,6 +553,13 @@ export class AcpRuntime {
         ? `Attached editor context (may be stale; reread before editing):\n${JSON.stringify(command.attachment)}\n\n`
         : "";
       const prefix = session.sent ? "" : session.initialContext;
+      if (!session.record.prompted) {
+        // Persist before sending. If the result is lost, resume may inspect the
+        // native context, but must never resend this task automatically.
+        const record = { ...session.record, prompted: true };
+        await this.options.sessionStore?.write(command.sessionId, record);
+        session.record = record;
+      }
       session.sent = true;
       const result = await this.request("session/prompt", {
         sessionId: acpSession,

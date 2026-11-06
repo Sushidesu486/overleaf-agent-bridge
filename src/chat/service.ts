@@ -410,6 +410,7 @@ export class ChatService {
       const session = await this.session(connection.userId, previous.id, false);
       session.agentState = "preparing";
       delete session.agentError;
+      delete session.recovery;
       await this.save(session);
       this.prepareSession(session);
     });
@@ -421,6 +422,22 @@ export class ChatService {
         sessionId: objectId,
         bindingVersion: z.number().int().nonnegative().default(0),
         error: z.string().max(2000).optional(),
+        recovery: z
+          .union([
+            z.object({ mode: z.enum(["new", "resumed"]) }).strict(),
+            z
+              .object({
+                mode: z.literal("rebuilt"),
+                reason: z.enum([
+                  "missing",
+                  "unsupported",
+                  "changed",
+                  "unavailable",
+                ]),
+              })
+              .strict(),
+          ])
+          .optional(),
       })
       .strict()
       .parse(input);
@@ -438,6 +455,7 @@ export class ChatService {
         throw new AgentError("NOT_FOUND", "连接会话不存在", 404);
       session.agentState = data.error ? "error" : "ready";
       session.agentError = data.error;
+      session.recovery = data.error ? undefined : data.recovery;
       await this.save(session);
       return { accepted: true };
     });
@@ -522,6 +540,7 @@ export class ChatService {
         session.bindingVersion = (session.bindingVersion ?? 0) + 1;
         session.agentState = "preparing";
         delete session.agentError;
+        delete session.recovery;
         session.messages.push({
           id: id(),
           role: "status",

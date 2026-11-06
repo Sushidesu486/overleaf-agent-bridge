@@ -178,6 +178,10 @@ body:has(#agent-page-root) {
 }
 .agent-connect-modal,
 .agent-conversations-modal {
+  details code {
+    color: inherit;
+    overflow-wrap: anywhere;
+  }
   h3,
   h4,
   legend,

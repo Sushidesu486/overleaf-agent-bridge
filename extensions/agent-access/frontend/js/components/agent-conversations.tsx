@@ -240,12 +240,21 @@ export function AgentConversationSettings({
           <summary>记录保存在哪里？重连后如何继续？</summary>
           <p className="mt-2">
             聊天记录保存在 Overleaf
-            服务端，按你的账号和项目隔离；本机连接器保存连接凭据和工作目录。
+            服务端，按你的账号和项目隔离。本机的连接凭据、工作目录和会话索引默认位于
+            <code>~/.config/overleaf-agent/</code>；Windows 中 ~
+            指你的用户目录。 自定义 --config 时，保存在该配置文件所在目录。
           </p>
           <p>
-            连接器重启或切换 Agent 后，会用最近 20 条用户与助手消息（最多 4
-            万字符）重建上下文，工具详情不包含在恢复上下文中。目前尚未接入 Agent
-            原生 session 的恢复。
+            连接器重启后优先恢复本机 Agent 原会话。换设备、切换 Agent
+            或原会话不可用时， 会用最近 20 条用户与助手消息（最多 4
+            万字符）继续对话，不包含工具详情。
+            登录或网络错误会提示重试。重连不会自动重发中断的任务。
+          </p>
+          <p>
+            会话索引位于 <code>sessions/&lt;连接 ID&gt;/</code>
+            ，只保存对应关系； 原生记录由 Codex 或 Claude 管理，默认分别在{" "}
+            <code>~/.codex/sessions/</code>和 <code>~/.claude/projects/</code>
+            。归档网页对话会保留这些记录。
           </p>
         </details>
         {session.runId && <p role="status">请先停止当前任务，再管理对话。</p>}

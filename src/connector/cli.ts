@@ -6,6 +6,8 @@ import { readFile, writeFile, mkdir, chmod } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { createInterface } from "node:readline/promises";
+import { NativeSessionStore } from "./sessions.js";
+import { recoveryMessage } from "../../extensions/agent-access/shared/chat.js";
 import { AcpRuntime } from "./acp.js";
 import { resolveRuntime, type RuntimeConfig } from "./runtime.js";
 import { runtimes } from "../../extensions/agent-access/shared/runtimes.js";
@@ -173,6 +175,9 @@ async function main() {
   const { agent, args } = selected;
   const cwd = join(dirname(path), "workspaces", config.connectionId);
   await mkdir(cwd, { recursive: true, mode: 0o700 });
+  const sessionStore = new NativeSessionStore(
+    join(dirname(path), "sessions", config.connectionId),
+  );
   let stopping = false,
     active: AbortController | undefined;
   const stop = () => {
@@ -195,15 +200,17 @@ async function main() {
       args,
       cwd,
       mcpUrl: config.mcpUrl,
+      sessionStore,
+      sessionScope: `${config.origin}:${config.connectionId}`,
       onExit: () => controller.abort(),
       loginHint: selected.runtime
         ? runtimes[selected.runtime].login
         : undefined,
-      onSession: async (sessionId, error, bindingVersion) => {
+      onSession: async (sessionId, error, bindingVersion, recovery) => {
         const response = await fetch(config!.origin + "/agent-bridge/session", {
           method: "POST",
           headers: { ...headers, "Content-Type": "application/json" },
-          body: JSON.stringify({ sessionId, error, bindingVersion }),
+          body: JSON.stringify({ sessionId, error, bindingVersion, recovery }),
           signal: AbortSignal.timeout(20_000),
           redirect: "error",
         });
@@ -212,7 +219,9 @@ async function main() {
         if (!response.ok)
           throw new Error(`会话初始化回传失败（HTTP ${response.status}）`);
         if (!error)
-          console.log("项目会话已就绪，可以在对应项目的 Agent 侧栏发送消息。");
+          console.log(
+            `${recovery ? recoveryMessage(recovery) : "项目会话已就绪"}，可以在对应项目的 Agent 侧栏发送消息。`,
+          );
       },
       emit: async (sessionId, runId, event) => {
         const response = await fetch(config!.origin + "/agent-bridge/events", {
