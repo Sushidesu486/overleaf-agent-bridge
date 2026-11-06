@@ -138,6 +138,25 @@ test("connection preparation creates one session with fixed tools/instructions a
       runtime.prepare({ ...prepare, projectId: "222222222222222222222222" }),
       /项目不一致/,
     );
+    await runtime.command({
+      ...command("rebound", "continue after handoff"),
+      bindingVersion: 2,
+      context: [{ id: "old", role: "user", text: "Preserved history" }],
+    });
+    const rebound = (await readFile(trace, "utf8"))
+      .trim()
+      .split("\n")
+      .map((x) => JSON.parse(x));
+    assert.equal(
+      rebound.filter((x) => x.method === "session/new").length,
+      2,
+      "returning to a connector must not reuse its stale runtime session",
+    );
+    assert.match(
+      rebound.filter((x) => x.method === "session/prompt").at(-1).params
+        .prompt[0].text,
+      /Preserved history/,
+    );
   } finally {
     runtime.stop();
     await rm(cwd, { recursive: true, force: true });

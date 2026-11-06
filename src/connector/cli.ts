@@ -6,6 +6,8 @@ import { readFile, writeFile, mkdir, chmod } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { createInterface } from "node:readline/promises";
+import { NativeSessionStore } from "./sessions.js";
+import { recoveryMessage } from "../../extensions/agent-access/shared/chat.js";
 import { AcpRuntime } from "./acp.js";
 import { resolveRuntime, type RuntimeConfig } from "./runtime.js";
 import { runtimes } from "../../extensions/agent-access/shared/runtimes.js";
@@ -173,6 +175,9 @@ async function main() {
   const { agent, args } = selected;
   const cwd = join(dirname(path), "workspaces", config.connectionId);
   await mkdir(cwd, { recursive: true, mode: 0o700 });
+  const sessionStore = new NativeSessionStore(
+    join(dirname(path), "sessions", config.connectionId),
+  );
   let stopping = false,
     active: AbortController | undefined;
   const stop = () => {
@@ -184,6 +189,7 @@ async function main() {
   const headers = {
     "X-Overleaf-Agent-Bridge-Key": config.credential,
     "X-Overleaf-Agent-Prepare": "1",
+    "X-Overleaf-Agent-Rebind": "1",
   };
   console.log(`连接 ${config.name}；Agent: ${agent}。按 Ctrl+C 停止。`);
   while (!stopping) {
@@ -194,22 +200,28 @@ async function main() {
       args,
       cwd,
       mcpUrl: config.mcpUrl,
+      sessionStore,
+      sessionScope: `${config.origin}:${config.connectionId}`,
       onExit: () => controller.abort(),
       loginHint: selected.runtime
         ? runtimes[selected.runtime].login
         : undefined,
-      onSession: async (sessionId, error) => {
+      onSession: async (sessionId, error, bindingVersion, recovery) => {
         const response = await fetch(config!.origin + "/agent-bridge/session", {
           method: "POST",
           headers: { ...headers, "Content-Type": "application/json" },
-          body: JSON.stringify({ sessionId, error }),
+          body: JSON.stringify({ sessionId, error, bindingVersion, recovery }),
           signal: AbortSignal.timeout(20_000),
           redirect: "error",
         });
+        // A conversation may have moved to another connector while this one was preparing.
+        if (response.status === 404) return;
         if (!response.ok)
           throw new Error(`会话初始化回传失败（HTTP ${response.status}）`);
         if (!error)
-          console.log("项目会话已就绪，可以在对应项目的 Agent 侧栏发送消息。");
+          console.log(
+            `${recovery ? recoveryMessage(recovery) : "项目会话已就绪"}，可以在对应项目的 Agent 侧栏发送消息。`,
+          );
       },
       emit: async (sessionId, runId, event) => {
         const response = await fetch(config!.origin + "/agent-bridge/events", {
@@ -244,7 +256,7 @@ async function main() {
       }
       if (!response.ok || !response.body)
         throw new Error(`连接失败（HTTP ${response.status}）`);
-      console.log("已连到 Overleaf，等待连接确认和项目会话…");
+      console.log("已连到 Overleaf，等待连接确认…");
       for await (const event of events(response.body)) {
         clearTimeout(heartbeat);
         heartbeat = setTimeout(() => controller.abort(), 35_000);
@@ -263,6 +275,7 @@ async function main() {
                 );
             }
           } else console.log("  请在网页连接设置中查看授权项目。");
+          console.log("可在网页开始或继续对话；新对话会在首次发送消息时建立。");
         }
         if (event.event === "command")
           void runtime.command(event.data as BridgeCommand).catch((error) => {

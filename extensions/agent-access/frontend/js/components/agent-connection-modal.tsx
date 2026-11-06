@@ -195,7 +195,7 @@ export default function AgentConnectionModal({
               {pairedConnection && (
                 <Notification
                   type="success"
-                  content="连接成功，已为当前项目选中这个 Agent。关闭弹窗即可继续。"
+                  content="连接成功。可开始新对话，也可以在对话管理中让它继续已有对话。"
                 />
               )}
               {pairing && !pairedConnection && (
@@ -218,7 +218,7 @@ export default function AgentConnectionModal({
                   </pre>
                   <p className="small">
                     按终端提示粘贴下面的配对码。10
-                    分钟内有效，只能使用一次。首次启动会下载固定版本的适配器；连接成功后自动建立项目会话，后续消息复用该会话。
+                    分钟内有效，只能使用一次。首次启动会下载固定版本的适配器；首次发送消息时建立对话，后续消息复用该会话。
                   </p>
                   <OLFormGroup controlId="agent-pair-code">
                     <OLFormLabel>一次性配对码</OLFormLabel>
@@ -256,14 +256,24 @@ export default function AgentConnectionModal({
                         {c.runtime} · {c.online ? "在线" : "离线"}
                       </div>
                     </div>
-                    <OLButton
-                      variant="danger-ghost"
-                      size="sm"
-                      disabled={busy}
-                      onClick={() => revoke(c.id)}
-                    >
-                      停用
-                    </OLButton>
+                    <div className="d-flex gap-2">
+                      <OLButton
+                        variant="secondary"
+                        size="sm"
+                        disabled={busy || !c.online}
+                        onClick={() => onConnected(c.id)}
+                      >
+                        选择此 Agent
+                      </OLButton>
+                      <OLButton
+                        variant="danger-ghost"
+                        size="sm"
+                        disabled={busy}
+                        onClick={() => revoke(c.id)}
+                      >
+                        停用
+                      </OLButton>
+                    </div>
                   </div>
                 ))
               ) : (

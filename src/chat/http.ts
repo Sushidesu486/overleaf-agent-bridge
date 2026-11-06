@@ -87,6 +87,7 @@ export async function handleBridge(
         (command) => sendEvent(res, "command", command),
         () => res.end(),
         req.headers["x-overleaf-agent-prepare"] === "1",
+        req.headers["x-overleaf-agent-rebind"] === "1",
       );
       startEvents(res);
       sendEvent(res, "ready", {
