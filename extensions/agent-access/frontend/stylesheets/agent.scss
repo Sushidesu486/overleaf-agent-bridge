@@ -94,6 +94,47 @@ body:has(#agent-page-root) {
   .agent-chat-composer {
     flex-shrink: 0;
   }
+  .agent-chat-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--spacing-02);
+  }
+  .agent-chat-title {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    overflow-wrap: anywhere;
+    strong {
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .small {
+      color: var(--content-secondary-themed);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+  .agent-connection-status {
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-align: left;
+  }
+  .agent-status-dot {
+    display: inline-block;
+    width: 0.5rem;
+    height: 0.5rem;
+    margin-right: 0.4rem;
+    border-radius: 50%;
+    background: var(--content-secondary-themed);
+    &.online {
+      background: var(--green-50);
+    }
+  }
   .agent-chat-messages {
     flex: 1;
     min-height: 5rem;
@@ -135,7 +176,8 @@ body:has(#agent-page-root) {
     margin-bottom: var(--spacing-03);
   }
 }
-.agent-connect-modal {
+.agent-connect-modal,
+.agent-conversations-modal {
   h3,
   h4,
   legend,
@@ -157,5 +199,39 @@ body:has(#agent-page-root) {
   .table {
     --bs-table-bg: var(--bg-primary-themed);
     --bs-table-color: var(--content-primary-themed);
+  }
+}
+.agent-conversations-modal {
+  .agent-conversation-list {
+    max-height: 55vh;
+    overflow-y: auto;
+  }
+  .agent-conversation-item {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-02);
+    width: 100%;
+    margin-bottom: var(--spacing-02);
+    padding: var(--spacing-03);
+    text-align: left;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    border-radius: var(--border-radius-base);
+    .button-content {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: var(--spacing-02);
+    }
+    &[aria-current="true"] {
+      border-color: var(--input-border-hover);
+    }
+  }
+  .agent-conversation-meta {
+    color: var(--content-secondary-themed);
+    font-weight: normal;
+  }
+  .form-select {
+    flex: 0 0 8rem;
   }
 }

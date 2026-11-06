@@ -33,6 +33,13 @@ export type Connection = {
   runtime: string;
   revoked: boolean;
 };
+export type SessionQuery = {
+  archived?: boolean;
+  search?: string;
+  before?: string;
+  beforeId?: string;
+  connectionId?: string;
+};
 type Records = {
   pairings: Pairing;
   connections: Connection;
@@ -47,7 +54,11 @@ export interface ChatStore {
     now: string,
   ): Promise<Pairing | null>;
   connections(userId: string): Promise<Connection[]>;
-  sessions(userId: string, projectId: string): Promise<ChatSession[]>;
+  sessions(
+    userId: string,
+    projectId: string,
+    query?: SessionQuery,
+  ): Promise<ChatSession[]>;
   saveSession(value: ChatSession, previousRevision: number): Promise<boolean>;
   revokeConnection(id: string): Promise<void>;
   interruptedSessions(connectionId: string): Promise<ChatSession[]>;
@@ -125,6 +136,7 @@ type LiveConnection = {
   close: () => void;
   generation: string;
   prepare: boolean;
+  rebind: boolean;
 };
 
 /** One Web worker owns live connections. Durable sessions use revision CAS; interrupted turns are never replayed. */
@@ -299,6 +311,7 @@ export class ChatService {
               runtime: c.runtime,
               projects: grant ? grant.projects : [],
               online: Boolean(grant && this.live.has(c.id)),
+              canRebind: Boolean(this.live.get(c.id)?.rebind),
               revoked: c.revoked || !grant,
               pairingId: c.pairingId,
               availableInProject,
@@ -336,6 +349,7 @@ export class ChatService {
     send: LiveConnection["send"],
     close: LiveConnection["close"],
     prepare = false,
+    rebind = false,
   ) {
     const { connection, grant } = await this.authenticate(credential);
     const projects = (
@@ -350,7 +364,13 @@ export class ChatService {
         );
       // A server or connector restart leaves durable turns visibly interrupted, never queued for replay.
       await this.interruptConnection(connection.id);
-      const entry: LiveConnection = { send, close, generation: id(), prepare };
+      const entry: LiveConnection = {
+        send,
+        close,
+        generation: id(),
+        prepare,
+        rebind,
+      };
       this.live.set(connection.id, entry);
       return {
         id: connection.id,
@@ -369,6 +389,7 @@ export class ChatService {
       type: "prepare",
       sessionId: session.id,
       projectId: session.projectId,
+      bindingVersion: session.bindingVersion ?? 0,
       context: session.messages
         .filter((m) => m.role === "user" || m.role === "assistant")
         .slice(-20),
@@ -380,15 +401,11 @@ export class ChatService {
     const projectId = grant.projects[0];
     await this.projectAccess(connection.userId, projectId);
     const previous = (
-      await this.store.sessions(connection.userId, projectId)
-    ).find((s) => s.connectionId === connection.id);
-    if (!previous) {
-      await this.createSession(connection.userId, {
-        projectId,
+      await this.store.sessions(connection.userId, projectId, {
         connectionId: connection.id,
-      });
-      return;
-    }
+      })
+    )[0];
+    if (!previous) return;
     await this.lock(previous.id, async () => {
       const session = await this.session(connection.userId, previous.id, false);
       session.agentState = "preparing";
@@ -400,7 +417,11 @@ export class ChatService {
   async prepared(credential: string, input: unknown) {
     const { connection } = await this.authenticate(credential);
     const data = z
-      .object({ sessionId: objectId, error: z.string().max(2000).optional() })
+      .object({
+        sessionId: objectId,
+        bindingVersion: z.number().int().nonnegative().default(0),
+        error: z.string().max(2000).optional(),
+      })
       .strict()
       .parse(input);
     return this.lock(data.sessionId, async () => {
@@ -411,6 +432,7 @@ export class ChatService {
       );
       if (
         session.connectionId !== connection.id ||
+        (session.bindingVersion ?? 0) !== data.bindingVersion ||
         !this.live.has(connection.id)
       )
         throw new AgentError("NOT_FOUND", "连接会话不存在", 404);
@@ -421,14 +443,99 @@ export class ChatService {
     });
   }
 
-  async sessions(userId: string, projectId: string) {
+  async sessions(userId: string, projectId: string, input: unknown = {}) {
     await this.projectAccess(userId, projectId);
-    return (await this.store.sessions(userId, projectId)).map((s) => ({
+    const query = z
+      .object({
+        archived: z.enum(["0", "1"]).default("0"),
+        search: z.string().trim().max(100).default(""),
+        before: z.iso.datetime().optional(),
+        beforeId: objectId.optional(),
+      })
+      .refine(
+        (q) => Boolean(q.before) === Boolean(q.beforeId),
+        "分页参数不完整",
+      )
+      .parse(input);
+    return (
+      await this.store.sessions(userId, projectId, {
+        ...query,
+        archived: query.archived === "1",
+      })
+    ).map((s) => ({
       id: s.id,
       title: s.title,
       connectionId: s.connectionId,
       updatedAt: s.updatedAt,
+      status: s.status,
+      runId: s.runId,
+      archivedAt: s.archivedAt,
     }));
+  }
+  async updateSession(userId: string, sessionId: string, input: unknown) {
+    const data = z
+      .object({
+        revision: z.number().int().nonnegative(),
+        title: z.string().trim().min(1).max(100).optional(),
+        archived: z.boolean().optional(),
+        connectionId: objectId.optional(),
+      })
+      .strict()
+      .parse(input);
+    return this.lock(sessionId, async () => {
+      const session = await this.session(userId, sessionId, false);
+      if (session.revision !== data.revision)
+        throw new AgentError("CONFLICT", "对话已更新，请重试", 409);
+      if (session.runId)
+        throw new AgentError("BUSY", "请先停止当前任务，再管理对话", 409);
+      if (data.connectionId && data.connectionId !== session.connectionId) {
+        if (session.archivedAt)
+          throw new AgentError("ARCHIVED", "请先恢复已归档的对话", 409);
+        const connection = await this.ownedConnection(
+          userId,
+          data.connectionId,
+          session.projectId,
+        );
+        const live = this.live.get(connection.id);
+        if (!live)
+          throw new AgentError("OFFLINE", "请先启动要使用的 Agent", 409);
+        if (!live.rebind)
+          throw new AgentError(
+            "UPDATE_CONNECTOR",
+            "请下载新版连接器后再切换当前对话",
+            409,
+          );
+        const previous = await this.store.get(
+          "connections",
+          session.connectionId,
+        );
+        for (const message of session.messages) {
+          if (
+            (message.role === "assistant" || message.role === "tool") &&
+            !message.actorName
+          ) {
+            message.actorName = previous?.name || "Agent";
+            message.actorRuntime = previous?.runtime;
+          }
+        }
+        session.connectionId = connection.id;
+        session.bindingVersion = (session.bindingVersion ?? 0) + 1;
+        session.agentState = "preparing";
+        delete session.agentError;
+        session.messages.push({
+          id: id(),
+          role: "status",
+          text: `已切换到 ${connection.name}（${connection.runtime}）。将根据最近的聊天记录建立上下文。`,
+        });
+      }
+      if (data.title !== undefined) session.title = data.title;
+      if (data.archived === true) session.archivedAt = now();
+      if (data.archived === false) delete session.archivedAt;
+      await this.save(session);
+      if (data.connectionId && session.agentState === "preparing")
+        this.prepareSession(session);
+      return session;
+    });
   }
   async createSession(userId: string, input: unknown) {
     const data = z
@@ -493,6 +600,8 @@ export class ChatService {
     const data = promptSchema.parse(input);
     return this.lock(sessionId, async () => {
       const session = await this.session(userId, sessionId, false);
+      if (session.archivedAt)
+        throw new AgentError("ARCHIVED", "请先恢复已归档的对话", 409);
       if (session.runId)
         throw new AgentError("BUSY", "请等待当前任务结束或先停止任务", 409);
       await this.ownedConnection(
@@ -536,6 +645,7 @@ export class ChatService {
           sessionId,
           runId: session.runId,
           projectId: session.projectId,
+          bindingVersion: session.bindingVersion ?? 0,
           text: data.text,
           context,
           attachment: data.attachment,
@@ -617,6 +727,8 @@ export class ChatService {
           text: event.text,
           title: event.title,
           state: event.state,
+          actorName: connection.name,
+          actorRuntime: connection.runtime,
         };
         if (index >= 0) session.messages[index] = message;
         else if (session.messages.length < 120) session.messages.push(message);

@@ -91,6 +91,7 @@ const old = {
   online: false,
   revoked: false,
   runtime: "Codex",
+  canRebind: true,
   projects: ["project"],
 };
 const fresh = {
@@ -99,6 +100,7 @@ const fresh = {
   online: true,
   revoked: false,
   runtime: "Codex",
+  canRebind: true,
   projects: ["project"],
 };
 const session = (id, connectionId) => ({
@@ -107,14 +109,14 @@ const session = (id, connectionId) => ({
   projectId: "project",
   userId: "user",
   title: id,
-  messages: [],
+  messages: [{ id: "m", role: "user", text: "saved content" }],
   status: "idle",
   runId: null,
   permission: null,
   agentState: "ready",
   revision: 1,
-  updatedAt: "now",
-  createdAt: "now",
+  updatedAt: "2026-11-06T08:00:00.000Z",
+  createdAt: "2026-11-06T08:00:00.000Z",
 });
 async function fixture({
   connections = [old],
@@ -124,7 +126,9 @@ async function fixture({
 } = {}) {
   const intervals = new Set(),
     sources = new Set(),
-    storage = new Map(saved ? [["overleaf-agent-session:project", saved]] : []);
+    storage = new Map(
+      saved === null ? [] : [["overleaf-agent-session:project", saved]],
+    );
   const real = {
     setInterval: globalThis.setInterval,
     clearInterval: globalThis.clearInterval,
@@ -134,20 +138,61 @@ async function fixture({
   const state = {
     connections,
     sessions,
+    posts: [],
     async get(url) {
       if (failInitialSessions && !url.includes("/connections")) {
         failInitialSessions = false;
         throw new Error("temporary session lookup failure");
       }
-      return url.includes("/connections") ? this.connections : this.sessions;
+      if (url.includes("/connections")) return this.connections;
+      const parsed = new URL(url, "http://localhost");
+      if (parsed.pathname === "/user/agent/chat/sessions")
+        return this.sessions.filter(
+          (s) =>
+            Boolean(s.archivedAt) ===
+              (parsed.searchParams.get("archived") === "1") &&
+            s.title.includes(parsed.searchParams.get("search") || ""),
+        );
+      const found = this.sessions.find(
+        (s) => s.id === parsed.pathname.split("/").at(-1),
+      );
+      if (!found) throw Object.assign(new Error("not found"), { status: 404 });
+      return structuredClone(found);
     },
-    async post() {
-      throw new Error("unexpected POST");
+    async post(url, options = {}) {
+      this.posts.push({ url, body: options.body });
+      if (url === "/user/agent/chat/sessions") {
+        const created = {
+          ...session("created", options.body.connectionId),
+          title: "新对话",
+          messages: [],
+        };
+        this.sessions.push(created);
+        return structuredClone(created);
+      }
+      const found = this.sessions.find((s) => s.id === url.split("/").at(-2));
+      assert.ok(found);
+      if (url.endsWith("/settings")) {
+        const { title, archived, connectionId } = options.body;
+        if (title) found.title = title;
+        if (archived) found.archivedAt = "now";
+        if (archived === false) delete found.archivedAt;
+        if (connectionId) found.connectionId = connectionId;
+      } else if (url.endsWith("/messages")) {
+        found.messages.push({
+          id: "sent",
+          role: "user",
+          text: options.body.text,
+        });
+        found.title = options.body.text;
+      } else throw new Error("unexpected POST " + url);
+      found.revision++;
+      return structuredClone(found);
     },
   };
   globalThis.agentUI = state;
   globalThis.localStorage = {
-    getItem: (k) => storage.get(k) || null,
+    getItem: (k) => (storage.has(k) ? storage.get(k) : null),
     setItem: (k, v) => storage.set(k, v),
     removeItem: (k) => storage.delete(k),
   };
@@ -177,6 +222,7 @@ async function fixture({
   });
   return {
     state,
+    storage,
     view,
     async poll() {
       await act(async () => {
@@ -190,164 +236,202 @@ async function fixture({
     },
   };
 }
-test("sidebar selects a newly connected Agent instead of keeping an offline saved session", async () => {
+const button = (f, label) =>
+  f.view.root
+    .findAllByType("button")
+    .find(
+      (n) => n.props.accessibilityLabel === label || n.children.includes(label),
+    );
+const title = (f) => f.view.root.findByType("strong").children.join("");
+const click = async (f, label) => {
+  const b = button(f, label);
+  assert.ok(b, label);
+  await act(async () => b.props.onClick());
+};
+const message = (f) =>
+  f.view.root.findByProps({ "aria-label": "发给 Agent 的消息" });
+
+test("an online connector never replaces the conversation being read", async () => {
   const f = await fixture();
   try {
-    assert.equal(
-      f.view.root.findByProps({ "aria-label": "选择 Agent" }).props.value,
-      "old",
-    );
+    assert.equal(title(f), "previous");
     f.state.connections = [old, fresh];
-    f.state.sessions = [
-      session("prepared", "fresh"),
-      session("previous", "old"),
-    ];
+    f.state.sessions.unshift(session("other", "fresh"));
     await f.poll();
-    assert.equal(
-      f.view.root.findByProps({ "aria-label": "选择 Agent" }).props.value,
-      "fresh",
-      "connector is online but sidebar is pinned to its old offline session",
-    );
-    assert.ok(
-      f.view.root
-        .findAllByType("span")
-        .some((n) => n.children.includes("Agent 已连接")),
-    );
-  } finally {
-    await f.close();
-  }
-});
-test("sidebar restores the online connection when local storage points at an old disconnected session", async () => {
-  const f = await fixture({
-    connections: [old, fresh],
-    sessions: [session("prepared", "fresh"), session("previous", "old")],
-  });
-  try {
-    assert.equal(
-      f.view.root.findByProps({ "aria-label": "选择 Agent" }).props.value,
-      "fresh",
-    );
-  } finally {
-    await f.close();
-  }
-});
-test("sidebar remembers the user-selected conversation across reloads", async () => {
-  const f = await fixture({
-    connections: [{ ...old, online: true }, fresh],
-    sessions: [session("prepared", "fresh"), session("previous", "old")],
-    saved: "previous",
-  });
-  try {
-    assert.equal(
-      f.view.root.findByProps({ "aria-label": "选择对话" }).props.value,
-      "previous",
-      "initial empty state must not erase saved conversation before loading it",
-    );
-  } finally {
-    await f.close();
-  }
-});
-test("sidebar preserves an unsent draft and offers an explicit online switch", async () => {
-  const f = await fixture();
-  try {
-    await act(async () =>
-      f.view.root
-        .findByProps({ "aria-label": "发给 Agent 的消息" })
-        .props.onChange({ target: { value: "my unsent draft" } }),
-    );
-    f.state.connections = [old, fresh];
-    f.state.sessions = [
-      session("prepared", "fresh"),
-      session("previous", "old"),
-    ];
-    await f.poll();
-    assert.equal(
-      f.view.root.findByProps({ "aria-label": "选择 Agent" }).props.value,
-      "old",
-    );
-    const switchButton = f.view.root
-      .findAllByType("button")
-      .find((n) => n.children.includes("使用在线 Agent"));
-    assert.ok(switchButton);
-    await act(async () => switchButton.props.onClick());
-    assert.equal(
-      f.view.root.findByProps({ "aria-label": "选择 Agent" }).props.value,
-      "fresh",
-    );
-    assert.equal(
-      f.view.root.findByProps({ "aria-label": "发给 Agent 的消息" }).props
-        .value,
-      "my unsent draft",
-    );
-  } finally {
-    await f.close();
-  }
-});
-test("explicit history selection survives polling while another Agent is online", async () => {
-  const f = await fixture({
-    connections: [old, fresh],
-    sessions: [session("prepared", "fresh"), session("previous", "old")],
-    saved: "prepared",
-  });
-  try {
-    await act(async () =>
-      f.view.root
-        .findByProps({ "aria-label": "选择对话" })
-        .props.onChange({ target: { value: "previous" } }),
-    );
-    await f.poll();
-    assert.equal(
-      f.view.root.findByProps({ "aria-label": "选择对话" }).props.value,
-      "previous",
-    );
-  } finally {
-    await f.close();
-  }
-});
-test("online connections for other projects are explained and cannot become the active Agent", async () => {
-  const elsewhere = {
-    ...fresh,
-    availableInProject: false,
-    projectNames: ["Another project"],
-  };
-  const f = await fixture({ connections: [old, elsewhere] });
-  try {
-    assert.equal(
-      f.view.root.findByProps({ "aria-label": "选择 Agent" }).props.value,
-      "old",
-    );
-    const notice = f.view.root
-      .findAllByProps({ role: "status" })
-      .find((n) => n.children.join("").includes("Another project"));
-    assert.ok(notice);
-    assert.ok(
-      !f.view.root
-        .findByProps({ "aria-label": "选择 Agent" })
-        .findAllByType("option")
-        .some((n) => n.props.value === "fresh"),
-    );
+    assert.equal(title(f), "previous");
+    assert.ok(button(f, "选择 Agent 继续此对话"));
+    assert.equal(f.storage.get("overleaf-agent-session:project"), "previous");
+    assert.equal(f.state.posts.length, 0);
   } finally {
     await f.close();
   }
 });
 
-test("a failed first session lookup recovers on the next successful poll", async () => {
-  const f = await fixture({ failInitialSessions: true });
+test("new conversation stays local until first send and drafts survive history navigation", async () => {
+  const f = await fixture({ connections: [{ ...old, online: true }] });
   try {
-    f.state.connections = [old, fresh];
-    f.state.sessions = [
-      session("prepared", "fresh"),
-      session("previous", "old"),
-    ];
-    await f.poll();
-    assert.equal(
-      f.view.root.findByProps({ "aria-label": "选择 Agent" }).props.value,
-      "fresh",
+    await act(async () =>
+      message(f).props.onChange({ target: { value: "old draft" } }),
     );
+    await click(f, "新对话");
+    assert.equal(title(f), "新对话");
+    assert.equal(message(f).props.value, "");
+    assert.equal(f.state.posts.length, 0);
+    await act(async () =>
+      message(f).props.onChange({ target: { value: "new draft" } }),
+    );
+    await click(f, "对话历史");
+    const item = f.view.root
+      .findAllByType("button")
+      .find((n) => n.props.className === "agent-conversation-item");
+    await act(async () => item.props.onClick());
+    assert.equal(title(f), "previous");
+    assert.equal(message(f).props.value, "old draft");
+    await click(f, "新对话");
+    assert.equal(message(f).props.value, "new draft");
+    await click(f, "发送");
+    assert.equal(
+      f.state.posts.filter((p) => p.url === "/user/agent/chat/sessions").length,
+      1,
+    );
+    assert.equal(title(f), "new draft");
+    assert.equal(message(f).props.value, "");
+  } finally {
+    await f.close();
+  }
+});
+
+test("an explicitly selected new draft remains a draft after reload", async () => {
+  const f = await fixture({ saved: "", connections: [old, fresh] });
+  try {
+    assert.equal(title(f), "新对话");
+    assert.equal(f.state.posts.length, 0);
+  } finally {
+    await f.close();
+  }
+});
+
+test("renaming, archiving and restoring update the same conversation", async () => {
+  const f = await fixture({ connections: [{ ...old, online: true }] });
+  try {
+    await click(f, "管理当前对话");
+    await act(async () =>
+      f.view.root
+        .findByProps({ id: "agent-conversation-title" })
+        .props.onChange({ target: { value: "Useful title" } }),
+    );
+    await act(async () =>
+      f.view.root.findByType("form").props.onSubmit({ preventDefault() {} }),
+    );
+    assert.equal(title(f), "Useful title");
+    await click(f, "管理当前对话");
+    await click(f, "归档对话");
+    assert.equal(message(f).props.disabled, true);
+    assert.equal(f.state.sessions.length, 1);
+    await click(f, "管理当前对话");
+    const restores = f.view.root
+      .findAllByType("button")
+      .filter((n) => n.children.includes("恢复对话"));
+    await act(async () => restores.at(-1).props.onClick());
+    assert.equal(message(f).props.disabled, false);
+    assert.equal(f.state.sessions[0].id, "previous");
+  } finally {
+    await f.close();
+  }
+});
+
+test("switching Agent preserves conversation identity, messages and draft", async () => {
+  const f = await fixture({ connections: [old, fresh] });
+  try {
+    await act(async () =>
+      message(f).props.onChange({ target: { value: "continue this" } }),
+    );
+    await click(f, "选择 Agent 继续此对话");
+    await act(async () =>
+      f.view.root
+        .findByProps({ id: "agent-conversation-connection" })
+        .props.onChange({ target: { value: "fresh" } }),
+    );
+    await click(f, "使用所选 Agent 继续");
+    assert.equal(title(f), "previous");
+    assert.equal(f.state.sessions[0].connectionId, "fresh");
+    assert.equal(f.state.sessions[0].messages[0].text, "saved content");
+    assert.equal(message(f).props.value, "continue this");
+  } finally {
+    await f.close();
+  }
+});
+
+test("history searches and archived view remain scoped to the current project", async () => {
+  const f = await fixture({
+    sessions: [
+      session("previous", "old"),
+      { ...session("archived", "old"), archivedAt: "now" },
+    ],
+  });
+  try {
+    await click(f, "对话历史");
+    const items = () =>
+      f.view.root
+        .findAllByType("button")
+        .filter((n) => n.props.className === "agent-conversation-item");
+    assert.equal(items().length, 1);
+    await act(async () =>
+      f.view.root
+        .findByProps({ "aria-label": "搜索对话" })
+        .props.onChange({ target: { value: "not found" } }),
+    );
+    assert.equal(items().length, 0);
+    await act(async () =>
+      f.view.root
+        .findByProps({ "aria-label": "搜索对话" })
+        .props.onChange({ target: { value: "" } }),
+    );
+    await act(async () =>
+      f.view.root
+        .findByProps({ "aria-label": "对话范围" })
+        .props.onChange({ target: { value: "archived" } }),
+    );
+    assert.equal(items().length, 1);
+    await act(async () => items()[0].props.onClick());
+    assert.equal(title(f), "archived");
+    assert.equal(message(f).props.disabled, true);
+  } finally {
+    await f.close();
+  }
+});
+
+test("a failed initial lookup recovers without switching away from saved history", async () => {
+  const f = await fixture({
+    failInitialSessions: true,
+    connections: [old, fresh],
+  });
+  try {
+    await f.poll();
+    assert.equal(title(f), "previous");
+  } finally {
+    await f.close();
+  }
+});
+
+test("online connectors for another project cannot take over this conversation", async () => {
+  const f = await fixture({
+    connections: [
+      old,
+      {
+        ...fresh,
+        availableInProject: false,
+        projectNames: ["Another project"],
+      },
+    ],
+  });
+  try {
+    assert.equal(title(f), "previous");
+    assert.ok(!button(f, "选择 Agent 继续此对话"));
     assert.ok(
       f.view.root
-        .findAllByType("span")
-        .some((n) => n.children.includes("Agent 已连接")),
+        .findAllByProps({ role: "status" })
+        .some((n) => n.children.join("").includes("Another project")),
     );
   } finally {
     await f.close();

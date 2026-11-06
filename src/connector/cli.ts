@@ -184,6 +184,7 @@ async function main() {
   const headers = {
     "X-Overleaf-Agent-Bridge-Key": config.credential,
     "X-Overleaf-Agent-Prepare": "1",
+    "X-Overleaf-Agent-Rebind": "1",
   };
   console.log(`连接 ${config.name}；Agent: ${agent}。按 Ctrl+C 停止。`);
   while (!stopping) {
@@ -198,14 +199,16 @@ async function main() {
       loginHint: selected.runtime
         ? runtimes[selected.runtime].login
         : undefined,
-      onSession: async (sessionId, error) => {
+      onSession: async (sessionId, error, bindingVersion) => {
         const response = await fetch(config!.origin + "/agent-bridge/session", {
           method: "POST",
           headers: { ...headers, "Content-Type": "application/json" },
-          body: JSON.stringify({ sessionId, error }),
+          body: JSON.stringify({ sessionId, error, bindingVersion }),
           signal: AbortSignal.timeout(20_000),
           redirect: "error",
         });
+        // A conversation may have moved to another connector while this one was preparing.
+        if (response.status === 404) return;
         if (!response.ok)
           throw new Error(`会话初始化回传失败（HTTP ${response.status}）`);
         if (!error)
@@ -244,7 +247,7 @@ async function main() {
       }
       if (!response.ok || !response.body)
         throw new Error(`连接失败（HTTP ${response.status}）`);
-      console.log("已连到 Overleaf，等待连接确认和项目会话…");
+      console.log("已连到 Overleaf，等待连接确认…");
       for await (const event of events(response.body)) {
         clearTimeout(heartbeat);
         heartbeat = setTimeout(() => controller.abort(), 35_000);
@@ -263,6 +266,7 @@ async function main() {
                 );
             }
           } else console.log("  请在网页连接设置中查看授权项目。");
+          console.log("可在网页开始或继续对话；新对话会在首次发送消息时建立。");
         }
         if (event.event === "command")
           void runtime.command(event.data as BridgeCommand).catch((error) => {

@@ -5,6 +5,8 @@ export type ChatMessage = {
   attachment?: Attachment;
   title?: string;
   state?: string;
+  actorName?: string;
+  actorRuntime?: string;
 };
 export type ChatPermission = {
   id: string;
@@ -16,6 +18,8 @@ export type ChatSession = {
   userId: string;
   projectId: string;
   connectionId: string;
+  bindingVersion?: number;
+  archivedAt?: string;
   title: string;
   messages: ChatMessage[];
   status:
@@ -42,7 +46,18 @@ export type PublicConnection = {
   pairingId?: string;
   availableInProject?: boolean;
   projectNames?: string[];
+  canRebind?: boolean;
 };
+export type SessionSummary = Pick<
+  ChatSession,
+  | "id"
+  | "title"
+  | "connectionId"
+  | "updatedAt"
+  | "status"
+  | "runId"
+  | "archivedAt"
+>;
 export type Attachment = {
   docId: string;
   name: string;
@@ -53,12 +68,14 @@ export type Attachment = {
 export type BridgeCommand =
   | {
       type: "prepare";
+      bindingVersion?: number;
       sessionId: string;
       projectId: string;
       context: ChatMessage[];
     }
   | {
       type: "prompt";
+      bindingVersion?: number;
       sessionId: string;
       runId: string;
       projectId: string;

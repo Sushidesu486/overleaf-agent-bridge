@@ -61,7 +61,11 @@ export class AcpRuntime {
       ) => Promise<void>;
       onExit?: () => void;
       loginHint?: string;
-      onSession?: (sessionId: string, error?: string) => Promise<void>;
+      onSession?: (
+        sessionId: string,
+        error?: string,
+        bindingVersion?: number,
+      ) => Promise<void>;
     },
   ) {
     this.process = spawn(options.command, options.args, {
@@ -281,13 +285,13 @@ export class AcpRuntime {
       });
   }
   async prepare(command: PrepareCommand): Promise<PreparedSession> {
-    let pending = this.sessions.get(command.sessionId);
+    const key = `${command.sessionId}:${command.bindingVersion ?? 0}`;
+    let pending = this.sessions.get(key);
     if (!pending) {
       pending = this.createSession(command);
-      this.sessions.set(command.sessionId, pending);
+      this.sessions.set(key, pending);
       pending.catch(() => {
-        if (this.sessions.get(command.sessionId) === pending)
-          this.sessions.delete(command.sessionId);
+        if (this.sessions.get(key) === pending) this.sessions.delete(key);
       });
     }
     const session = await pending;
@@ -347,7 +351,11 @@ export class AcpRuntime {
         sent: false,
         initialContext: `${capabilities.systemPrompt ? "" : instructions + "\n"}${history ? "Previous conversation recovered after reconnect:\n" + history + "\n\n" : ""}`,
       };
-      await this.options.onSession?.(command.sessionId);
+      await this.options.onSession?.(
+        command.sessionId,
+        undefined,
+        command.bindingVersion ?? 0,
+      );
       return session;
     } catch (error) {
       await this.options.onSession?.(
@@ -355,6 +363,7 @@ export class AcpRuntime {
         this.clean(
           error instanceof Error ? error.message : "Agent 创建会话失败",
         ).slice(0, 2000),
+        command.bindingVersion ?? 0,
       );
       throw error;
     }
@@ -427,6 +436,7 @@ export class AcpRuntime {
         sessionId: command.sessionId,
         projectId: command.projectId,
         context: command.context,
+        bindingVersion: command.bindingVersion,
       });
       const acpSession = session.id;
       run.acpSession = acpSession;

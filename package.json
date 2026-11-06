@@ -46,5 +46,10 @@
   "type": "module",
   "engines": {
     "node": ">=20.19"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Sushidesu486/overleaf-agent-bridge.git"
+  },
+  "homepage": "https://github.com/Sushidesu486/overleaf-agent-bridge#readme"
 }

@@ -416,10 +416,27 @@ const chatStore = {
       .limit(100)
       .toArray();
   },
-  async sessions(userId, projectId) {
+  async sessions(userId, projectId, query = {}) {
+    const filter = {
+      userId,
+      projectId,
+      archivedAt: { $exists: Boolean(query.archived) },
+      messages: { $elemMatch: { role: "user" } },
+    };
+    if (query.connectionId) filter.connectionId = query.connectionId;
+    if (query.search)
+      filter.title = {
+        $regex: query.search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+        $options: "i",
+      };
+    if (query.before)
+      filter.$or = [
+        { updatedAt: { $lt: query.before } },
+        { updatedAt: query.before, id: { $lt: query.beforeId } },
+      ];
     return (await chatCollection("sessions"))
-      .find({ userId, projectId }, { projection: { _id: 0, messages: 0 } })
-      .sort({ updatedAt: -1 })
+      .find(filter, { projection: { _id: 0, messages: 0 } })
+      .sort({ updatedAt: -1, id: -1 })
       .limit(30)
       .toArray();
   },
@@ -546,7 +563,9 @@ export default {
       );
       webRouter.get(
         "/user/agent/chat/sessions",
-        route((userId, req) => chat.sessions(userId, req.query.projectId)),
+        route((userId, req) =>
+          chat.sessions(userId, req.query.projectId, req.query),
+        ),
       );
       webRouter.post(
         "/user/agent/chat/sessions",
@@ -555,6 +574,12 @@ export default {
       webRouter.get(
         "/user/agent/chat/sessions/:id",
         route((userId, req) => chat.session(userId, req.params.id)),
+      );
+      webRouter.post(
+        "/user/agent/chat/sessions/:id/settings",
+        route((userId, req) =>
+          chat.updateSession(userId, req.params.id, req.body),
+        ),
       );
       webRouter.post(
         "/user/agent/chat/sessions/:id/messages",
