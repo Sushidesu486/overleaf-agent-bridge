@@ -1,6 +1,6 @@
 # Overleaf Agent
 
-Personal MCP links for self-hosted Overleaf. Sign in to Overleaf, generate a private URL, and paste it into an HTTP MCP client. The Agent reads, edits and compiles as that same human user. Links can be limited to selected projects, made read-only, regenerated or revoked.
+Personal MCP links and a native Agent chat sidebar for self-hosted Overleaf. Sign in to Overleaf, generate a private URL, and paste it into an HTTP MCP client. The Agent reads, edits and compiles as that same human user. Links can be limited to selected projects, made read-only, regenerated or revoked.
 
 ## Try the m701 lab
 
@@ -12,7 +12,24 @@ ssh -N -L 18080:127.0.0.1:18080 m701
 
 Open <http://localhost:18080/user/agent> and sign in. The navbar also has a “我的 Agent” link. Lab credentials are in `.local/lab-users.json` on m701; the first account is `lab-human@example.invalid`. These are separate from production accounts.
 
-The page uses Overleaf’s native account-settings layout, navigation and form components. Inside an open project, the left sidebar has a “我的 Agent” tab: “连接此项目” opens the same page in a new tab and preselects only that project. The editor stays open. The Agent page follows the same saved Dark / Light / System preference as the editor, with the native theme switch available on the page. You can return to the project or explicitly change the scope before generating a link.
+The page uses Overleaf’s native account-settings layout, navigation and form components. In a project, the left “我的 Agent” tab opens chat; “连接我的 Agent” opens a native themed modal in place. Its “个人 MCP 链接” tab reuses the existing link controls and defaults to the current project. Both the page and editor follow the same Dark / Light / System preference.
+
+### Connect your own Agent to the sidebar
+
+1. Open a project → “我的 Agent” → “连接我的 Agent” → “侧栏聊天”. Choose its name and edit/compile permissions, then generate a pairing code. The code expires after 10 minutes and works once.
+2. Click “下载连接器”. Install Node.js 20.19+ and an ACP Agent on your own computer. OpenCode supports `opencode acp`; configure your model account there. The connector keeps using that local configuration.
+3. In the downloaded file’s directory, run:
+
+   ```sh
+   node overleaf-agent-connector.mjs --server http://localhost:18080 --pair
+   ```
+
+   Paste the code at the hidden-input prompt. Keep this process and the SSH tunnel running. Later starts omit `--pair`.
+4. When the sidebar shows online, send a message. It supports current-file/selection attachments, streamed replies, tool results, permission choices, stop, new conversations and saved conversations. Ctrl/Cmd+Enter sends a message.
+
+The default command is `opencode acp`. For another ACP runtime, use `--agent /path/to/program --agent-arg arg1 --agent-arg arg2`; it must advertise HTTP MCP support. Codex CLI/Claude Code need an appropriate ACP adapter; their ordinary interactive CLI commands are not ACP servers. Models and billing remain with the local Agent. This creates sidebar sessions; it does not attach to a pre-existing desktop chat.
+
+The connector stores its credential and MCP URL in `~/.config/overleaf-agent/connector.json` (0600). `--config PATH` selects a separate connection profile. Credentials are sent only to the configured origin. Use the modal’s “停用” to revoke both the bridge and its MCP grant. Reconnection restores transcript context without replaying interrupted prompts. The original URL-only MCP workflow below remains available.
 
 Click “生成专属链接”, copy the URL into your client's HTTP MCP configuration, then ask the Agent to call `overleaf_whoami`. The URL works on a machine that can reach that loopback address through the tunnel; a cloud-hosted client needs a publicly reachable HTTPS deployment, which has not been set up yet.
 
@@ -41,6 +58,7 @@ Node.js 20.19+, Docker and Compose are required.
 npm ci
 npm run lab:init
 npm run build:extension
+npm run build:connector
 docker compose build overleaf
 docker compose config --quiet
 docker compose up -d --wait --wait-timeout 300
@@ -55,13 +73,23 @@ npm run smoke
 
 `smoke:personal` exercises the real personal-URL flow with human and outsider fixtures, project/action isolation, Unicode handling, stale-version rejection under the updater lock, compilation, rotation/revocation and credential-log scanning. It creates a reusable human-owned test project and revokes its test links afterward. `smoke` preserves the original stdio integration check. Use only the isolated lab for these scripts.
 
-The native React frontend is built from the pinned image’s source and cached Yarn dependencies in a separate Docker build stage. It uses `layout-react`, `OLPageContentCard`, native form/button components and the `railEntries` extension point. All frontend entrypoints are rebuilt together to keep the shared runtime and manifest consistent; the runtime image retains its original production dependencies. `patches/frontend.py` checks the upstream registration/type/stylesheet files before changing them.
+The native React frontend is built from the pinned image’s source and cached Yarn dependencies in a separate Docker build stage. It uses `layout-react`, `OLPageContentCard`, native form/button components and the `railEntries` extension point. All frontend entrypoints are rebuilt together to keep the shared runtime and manifest consistent; the runtime image retains its original production dependencies. `patches/frontend.py` checks the upstream registration/type/stylesheet files and the native external-update notification handler before changing them.
 
-The web extension is bundled from `src/agent` into ignored `extensions/agent-access/mcp.cjs`. The image is built from the pinned CE digest in `Dockerfile`; `patches/install.py` and `patches/history.py` reject unexpected upstream source hashes. The history patch presents Agent actors after user resolution and keeps adjacent human/Agent diff fragments separate. The extension uses existing login/CSRF and project authorization, with no human password or unrestricted browser-session delegation.
+The web extension is bundled from `src/agent` and `src/chat` into ignored `extensions/agent-access/mcp.cjs`. The image is built from the pinned CE digest in `Dockerfile`; `patches/install.py` and `patches/history.py` reject unexpected upstream source hashes. The history patch presents Agent actors after user resolution and keeps adjacent human/Agent diff fragments separate. The extension uses existing login/CSRF and project authorization, with no human password or unrestricted browser-session delegation.
 
 Link digests and scoped grants live in the application's `agent_grants` collection; edit operation records live in `agent_operations`. Mongo backups include both. The HTTP transport is stateless: every request carries and validates the personal credential. Nginx removes the secret path before forwarding and suppresses credential-route access/error logging; the module removes the private credential header before downstream logging. A future public gateway needs the same redaction rules. Compile input metadata describes observed versions; it does not pin a multi-document snapshot.
 
-To rebuild after changes, run `npm run build:extension`, `docker compose build overleaf`, then `docker compose up -d --no-deps --wait overleaf`. Stop without removing data using `docker compose stop`. Roll back to the pinned upstream image in `Dockerfile` to disable the extension while preserving project data and dormant grant collections.
+To rebuild after changes, run `npm run build:extension`, `npm run build:connector`, `docker compose build overleaf`, then `docker compose up -d --no-deps --wait overleaf`. Stop without removing data using `docker compose stop`. Roll back to the pinned upstream image in `Dockerfile` to disable the extension while preserving project data and dormant grant collections.
+
+## Sidebar transport and persistence
+
+The connector launches its locally configured Agent using ACP v1 over stdio. It opens an outbound SSE command stream to `/agent-bridge/connect` and posts results to `/agent-bridge/events`; the browser receives authenticated session snapshots over SSE and uses native CSRF-protected POST routes. This reuses the existing HTTP port without inbound access to the user’s device. The native HTTP MCP URL remains the document-tool channel.
+
+`agent_chat_pairings`, `agent_chat_connections` and `agent_chat_sessions` are included in Mongo backups. Pairing and connection secrets are stored as digests. Sessions bind the human user, project and connection; the server rechecks current project access. Chat is private to its owner while document edits remain collaborative. Agent-authored external updates skip the native overwrite-warning modal; other external sources retain it, and all document edits still use the existing version check and history path.
+
+Live streams currently belong to one Overleaf Web worker. Keep one Web replica until a shared connection-routing layer is added. Restarted/disconnected runs become interrupted, with no automatic replay. The connector recreates ACP sessions after reconnect and supplies up to the latest 20 conversational messages (40,000 characters) as recovery context; this is not an Agent’s internal reasoning state. Conversation length is bounded; start a new conversation when the UI requests it.
+
+`test/chat.test.ts` covers one-time pairing, user/project isolation, revocation, prompt serialization, stale events and disconnect recovery. `test/acp.test.ts` runs an ACP subprocess to cover consecutive turns, multiple permission requests and cancellation. Browser verification and tested runtime versions are recorded in `docs/progress.md`.
 
 ## Local stdio diagnostic
 

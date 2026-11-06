@@ -8,7 +8,16 @@ import AuthorizationManager from "../../app/src/Features/Authorization/Authoriza
 import CompileManager from "../../app/src/Features/Compile/CompileManager.mjs";
 import Settings from "@overleaf/settings";
 import bundled from "./mcp.cjs";
-const { AgentService, AgentError, handleMcp, errorResponse } = bundled;
+const {
+  AgentService,
+  AgentError,
+  handleMcp,
+  errorResponse,
+  ChatService,
+  handleBridge,
+  startEvents,
+  sendEvent,
+} = bundled;
 const publicOrigin = new URL(process.env.OVERLEAF_SITE_URL).origin;
 async function collection(name) {
   await mongoose.connectionPromise;
@@ -261,6 +270,73 @@ const backend = {
   },
 };
 const service = new AgentService(store, backend, publicOrigin);
+const chatCollection = (kind) => collection(`chat_${kind}`);
+const chatStore = {
+  async get(kind, id) {
+    return (await chatCollection(kind)).findOne(
+      { id },
+      { projection: { _id: 0 } },
+    );
+  },
+  async insert(kind, value) {
+    await (await chatCollection(kind)).insertOne({ _id: value.id, ...value });
+  },
+  async consumePairing(id, digest, now) {
+    return (await chatCollection("pairings")).findOneAndUpdate(
+      { id, digest, expiresAt: { $gt: now }, consumed: { $ne: true } },
+      { $set: { consumed: true } },
+      {
+        returnDocument: "before",
+        includeResultMetadata: false,
+        projection: { _id: 0, consumed: 0 },
+      },
+    );
+  },
+  async connections(userId) {
+    return (await chatCollection("connections"))
+      .find({ userId }, { projection: { _id: 0 } })
+      .limit(100)
+      .toArray();
+  },
+  async sessions(userId, projectId) {
+    return (await chatCollection("sessions"))
+      .find({ userId, projectId }, { projection: { _id: 0, messages: 0 } })
+      .sort({ updatedAt: -1 })
+      .limit(30)
+      .toArray();
+  },
+  async saveSession(value, revision) {
+    return (
+      (
+        await (
+          await chatCollection("sessions")
+        ).replaceOne({ id: value.id, revision }, value)
+      ).matchedCount === 1
+    );
+  },
+  async revokeConnection(id) {
+    await (
+      await chatCollection("connections")
+    ).updateOne({ id }, { $set: { revoked: true } });
+  },
+  async interruptedSessions(connectionId) {
+    return (await chatCollection("sessions"))
+      .find({ connectionId, runId: { $ne: null } }, { projection: { _id: 0 } })
+      .toArray();
+  },
+};
+const chat = new ChatService(chatStore, service);
+function takeCredential(req, header) {
+  const credential = req.headers[header];
+  delete req.headers[header];
+  req.rawHeaders = req.rawHeaders.flatMap((value, i, headers) =>
+    i % 2 === 0 && value.toLowerCase() !== header
+      ? [value, headers[i + 1]]
+      : [],
+  );
+  return typeof credential === "string" ? credential : "";
+}
+
 function securePage(res) {
   res.set("Cache-Control", "no-store");
   res.set("Referrer-Policy", "no-referrer");
@@ -300,15 +376,13 @@ function route(fn) {
 }
 export default {
   appMiddleware(app) {
+    app.use("/agent-bridge", (req, res) => {
+      const credential = takeCredential(req, "x-overleaf-agent-bridge-key");
+      void handleBridge(req, res, chat, credential);
+    });
     // nginx removes the secret path before forwarding; remove its private header before any downstream logging.
     app.use("/agent-mcp", (req, res) => {
-      const credential = req.headers["x-overleaf-agent-key"];
-      delete req.headers["x-overleaf-agent-key"];
-      req.rawHeaders = req.rawHeaders.flatMap((value, i, headers) =>
-        i % 2 === 0 && value.toLowerCase() !== "x-overleaf-agent-key"
-          ? [value, headers[i + 1]]
-          : [],
-      );
+      const credential = takeCredential(req, "x-overleaf-agent-key");
       void handleMcp(
         req,
         res,
@@ -320,6 +394,97 @@ export default {
   router: {
     apply(webRouter) {
       webRouter.use("/user/agent", loggedIn);
+      webRouter.get("/user/agent/connector", (_req, res) => {
+        res.download(
+          fileURLToPath(
+            new URL("./public/overleaf-agent-connector.mjs", import.meta.url),
+          ),
+          "overleaf-agent-connector.mjs",
+        );
+      });
+      webRouter.post(
+        "/user/agent/chat/pairings",
+        route((userId, req) => chat.createPairing(userId, req.body)),
+      );
+      webRouter.get(
+        "/user/agent/chat/connections",
+        route((userId, req) => chat.connections(userId, req.query.projectId)),
+      );
+      webRouter.post(
+        "/user/agent/chat/connections/:id/revoke",
+        route((userId, req) => chat.revoke(userId, req.params.id)),
+      );
+      webRouter.get(
+        "/user/agent/chat/sessions",
+        route((userId, req) => chat.sessions(userId, req.query.projectId)),
+      );
+      webRouter.post(
+        "/user/agent/chat/sessions",
+        route((userId, req) => chat.createSession(userId, req.body)),
+      );
+      webRouter.get(
+        "/user/agent/chat/sessions/:id",
+        route((userId, req) => chat.session(userId, req.params.id)),
+      );
+      webRouter.post(
+        "/user/agent/chat/sessions/:id/messages",
+        route((userId, req) => chat.prompt(userId, req.params.id, req.body)),
+      );
+      webRouter.post(
+        "/user/agent/chat/sessions/:id/cancel",
+        route((userId, req) => chat.cancel(userId, req.params.id)),
+      );
+      webRouter.post(
+        "/user/agent/chat/sessions/:id/permission",
+        route((userId, req) =>
+          chat.permission(userId, req.params.id, req.body),
+        ),
+      );
+      webRouter.get(
+        "/user/agent/chat/sessions/:id/events",
+        async (req, res) => {
+          const userId = String(SessionManager.getLoggedInUserId(req.session));
+          let unsubscribe;
+          let heartbeat;
+          try {
+            await chat.session(userId, req.params.id);
+            startEvents(res);
+            unsubscribe = chat.subscribe(req.params.id, (session) =>
+              sendEvent(res, "session", session),
+            );
+            sendEvent(
+              res,
+              "session",
+              await chat.session(userId, req.params.id),
+            );
+            let checking = false;
+            heartbeat = setInterval(async () => {
+              if (checking) return;
+              checking = true;
+              try {
+                await chat.session(userId, req.params.id);
+                sendEvent(res, "heartbeat", {});
+              } catch {
+                res.end();
+              } finally {
+                checking = false;
+              }
+            }, 10_000);
+            res.on("close", () => {
+              unsubscribe?.();
+              clearInterval(heartbeat);
+            });
+          } catch (error) {
+            unsubscribe?.();
+            clearInterval(heartbeat);
+            if (!res.headersSent)
+              res
+                .status(error instanceof AgentError ? error.status : 500)
+                .json(errorResponse(error));
+            else res.end();
+          }
+        },
+      );
       webRouter.get("/user/agent", async (req, res, next) => {
         try {
           const user = await User.findById(

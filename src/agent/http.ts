@@ -126,3 +126,6 @@ export async function handleMcp(
     await server?.close();
   }
 }
+
+export { ChatService } from "../chat/service.js";
+export { handleBridge, startEvents, sendEvent } from "../chat/http.js";

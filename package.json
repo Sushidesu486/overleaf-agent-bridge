@@ -1,6 +1,6 @@
 {
   "name": "overleaf-agent",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Independent MCP adapter for self-hosted Overleaf",
   "scripts": {
     "build": "tsc",
@@ -12,7 +12,9 @@
     "lab:bootstrap": "node scripts/bootstrap.mjs && tsx scripts/create-project.ts",
     "lab:init": "node scripts/init-lab.mjs",
     "build:extension": "esbuild src/agent/http.ts --bundle --platform=node --format=cjs --target=node20 --outfile=extensions/agent-access/mcp.cjs",
-    "smoke:personal": "tsx scripts/smoke-personal.ts"
+    "smoke:personal": "tsx scripts/smoke-personal.ts",
+    "connect": "tsx src/connector/cli.ts",
+    "build:connector": "esbuild src/connector/cli.ts --bundle --platform=node --format=esm --target=node20 --outfile=extensions/agent-access/public/overleaf-agent-connector.mjs"
   },
   "keywords": [],
   "author": "",

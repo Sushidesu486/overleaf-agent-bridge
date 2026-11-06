@@ -7,3 +7,5 @@ dist/
 extensions/agent-access/mcp.cjs
 
 ._*
+
+extensions/agent-access/public/overleaf-agent-connector.mjs

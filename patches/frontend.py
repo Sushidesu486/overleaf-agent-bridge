@@ -12,6 +12,9 @@ HASHES = {
     'frontend/js/features/ide-react/context/rail-context.tsx': {
         'cd32b65a87bb6184dec7fcfaf1911b505da91b74681bdd732f92b04e16806b87',
     },
+    'frontend/js/features/ide-react/context/editor-manager-context.tsx': {
+        'fb8291ce73d1913034c12fbca97f3c337cd6aa9380cb734e2d35a5ba22f376de',
+    },
     'frontend/stylesheets/main-style.scss': {
         '3ff29138cd9f515e76fc9aeaf414906226fe1004708a384a5d099387580f4263',
     },
@@ -36,3 +39,8 @@ replace('frontend/js/features/ide-react/context/rail-context.tsx',
 replace('frontend/stylesheets/main-style.scss',
         "@import 'ciam/all';",
         "@import 'ciam/all';\n@import '../../modules/agent-access/frontend/stylesheets/agent';")
+
+# Version-checked Agent updates are ordinary collaboration; keep other external warnings.
+replace('frontend/js/features/ide-react/context/editor-manager-context.tsx',
+        "update.meta.source === 'git-bridge'",
+        "(update.meta.source === 'git-bridge' || update.meta.source === 'agent')")

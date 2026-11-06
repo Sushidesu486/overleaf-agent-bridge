@@ -57,9 +57,13 @@ export default function AgentPage() {
   );
 }
 
-function AgentSettings() {
-  const [requestedProject] = useState(() =>
-    new URLSearchParams(window.location.search).get("project"),
+export function AgentSettings({
+  projectId,
+  embedded = false,
+}: { projectId?: string; embedded?: boolean } = {}) {
+  const [requestedProject] = useState(
+    () =>
+      projectId ?? new URLSearchParams(window.location.search).get("project"),
   );
   const [state, setState] = useState<State | null>(null);
   const [name, setName] = useState("我的 Agent");
@@ -190,29 +194,31 @@ function AgentSettings() {
 
   return (
     <>
-      <div className="page-header">
-        <div className="d-flex flex-wrap align-items-center justify-content-between gap-3">
-          <h1>我的 Agent</h1>
-          <div className="agent-theme-toggle">
-            <ThemeToggle />
+      {!embedded && (
+        <div className="page-header">
+          <div className="d-flex flex-wrap align-items-center justify-content-between gap-3">
+            <h1>我的 Agent</h1>
+            <div className="agent-theme-toggle">
+              <ThemeToggle />
+            </div>
           </div>
+          <p>管理你的 MCP 连接，让 Agent 使用你的账号协作编辑 LaTeX。</p>
+          {state && (
+            <p className="small" id="identity">
+              {state.user.name} · {state.user.email}
+            </p>
+          )}
+          {project && (
+            <OLButton
+              variant="secondary"
+              href={`/project/${project.id}`}
+              leadingIcon="arrow_back"
+            >
+              返回 {project.name}
+            </OLButton>
+          )}
         </div>
-        <p>管理你的 MCP 连接，让 Agent 使用你的账号协作编辑 LaTeX。</p>
-        {state && (
-          <p className="small" id="identity">
-            {state.user.name} · {state.user.email}
-          </p>
-        )}
-        {project && (
-          <OLButton
-            variant="secondary"
-            href={`/project/${project.id}`}
-            leadingIcon="arrow_back"
-          >
-            返回 {project.name}
-          </OLButton>
-        )}
-      </div>
+      )}
       {invalidProject && (
         <Notification
           type="error"
