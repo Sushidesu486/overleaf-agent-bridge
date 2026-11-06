@@ -38,6 +38,15 @@ Verified 2026-11-06T18:53:48+08:00 from local macOS adapter processes and the in
 - Real Codex ACP 2.5.0 and Claude ACP 0.101.0 each remembered a fresh random nonce after stopping and recreating the adapter process, using the same native ID and no injected history. These checks used a synthetic local read-only MCP server and their existing local model configuration, with separate test workspaces.
 - Native frontend/image build, downloaded-connector lifecycle/management smoke, and legacy compile smoke passed against port 18081. Chrome exercised same-conversation reconnect and missing-native-session fallback, without duplicated history or page errors. Temporary connector grants were revoked. The original m701 lab and production instance were not changed.
 
+### Reply reading and composer follow-up
+
+Verified 2026-11-06T20:15:18+08:00 against the independent m701 test checkout and macOS Chrome. Tested image: `sha256:4712e4f2c19b8e9aa569dbdd7131ff2a41e5e766c2453a83ab95f9998c32fc57`, retaining base revision `370f4763da4bc910da8309c9a71c85ecbe39f6a7`. The original lab remains healthy at its prior image.
+
+- Assistant messages now use Markdown structure, exact code-block copying and locally scrolling code/tables. The frontend uses the pinned base's existing `marked` 4.3.0 lexer; the matching dev dependency supports component tests. Tokens render as React elements, raw HTML stays text, links allow HTTP(S)/mailto/root-relative destinations, and image references become explicit links.
+- Tool details are collapsed by default; failures open automatically until the reader makes an explicit choice. Streaming/completion preserves that choice. Reading above the bottom pauses automatic following, with a return-to-latest control. Scrolling changes only the message container.
+- Ctrl/Cmd+Enter shares the button's ready/online/streaming checks and ignores active IME composition. The composer retains new text/attachments entered during an in-flight send, including the first send of a conversation.
+- Core typecheck/build, all 45 tests, native frontend/image build and the existing compilation smoke passed. Chrome with the downloaded connector and an ACP fixture verified Markdown, decoded entities, exact LaTeX clipboard contents, no active HTML or automatic remote image fetch, tool expansion and reading-position preservation. Dark/light desktop layouts and content containment in a narrow sidebar were inspected. The native editor's full multi-panel layout remains cramped at phone widths; this change does not redesign it. No page errors; temporary connection revoked.
+
 ## Previously delivered to the original lab
 
 - Repository `/home/shouss/projects/overleaf-agent`, branch `main`, no Git remote configured. User-facing page: `http://localhost:18080/user/agent` through an SSH tunnel.

@@ -6,13 +6,15 @@ import { resolve } from "node:path";
 import React from "react";
 import { create, act } from "react-test-renderer";
 import { build } from "esbuild";
-let AgentChat, AgentConnectionModal;
+let AgentChat, AgentConnectionModal, AgentMessage;
 before(async () => {
   await mkdir(".local", { recursive: true });
   const outdir = resolve(".local/connection-ui");
   await build({
     entryPoints: {
       chat: "extensions/agent-access/frontend/js/components/agent-chat.tsx",
+      message:
+        "extensions/agent-access/frontend/js/components/agent-message.tsx",
       modal:
         "extensions/agent-access/frontend/js/components/agent-connection-modal.tsx",
     },
@@ -81,6 +83,9 @@ before(async () => {
   });
   AgentChat = (await import(pathToFileURL(resolve(outdir, "chat.mjs")).href))
     .default;
+  AgentMessage = (
+    await import(pathToFileURL(resolve(outdir, "message.mjs")).href)
+  ).default;
   AgentConnectionModal = (
     await import(pathToFileURL(resolve(outdir, "modal.mjs")).href)
   ).default;
@@ -216,14 +221,29 @@ async function fixture({
       sources.delete(this);
     }
   };
+  const scroll = { scrollTop: 0, scrollHeight: 1000, clientHeight: 300 };
   let view;
   await act(async () => {
-    view = create(React.createElement(AgentChat));
+    view = create(React.createElement(AgentChat), {
+      createNodeMock: (node) =>
+        node.props["aria-label"] === "Agent 对话记录" ? scroll : null,
+    });
   });
   return {
     state,
     storage,
     view,
+    scroll,
+    async publish(value) {
+      state.sessions = state.sessions.map((s) =>
+        s.id === value.id ? value : s,
+      );
+      await act(async () => {
+        for (const source of sources)
+          if (source.id === value.id)
+            source.listeners.session?.({ data: JSON.stringify(value) });
+      });
+    },
     async poll() {
       await act(async () => {
         for (const fn of intervals) fn();
@@ -250,6 +270,195 @@ const click = async (f, label) => {
 };
 const message = (f) =>
   f.view.root.findByProps({ "aria-label": "发给 Agent 的消息" });
+
+test("streaming follows the latest reply until the reader scrolls up", async () => {
+  const f = await fixture();
+  try {
+    assert.equal(f.scroll.scrollTop, 1000);
+    const record = f.view.root.findByProps({ "aria-label": "Agent 对话记录" });
+    f.scroll.scrollTop = 100;
+    await act(async () => record.props.onScroll({ currentTarget: f.scroll }));
+    f.scroll.scrollHeight = 1600;
+    await f.publish({ ...f.state.sessions[0], revision: 2 });
+    assert.equal(f.scroll.scrollTop, 100);
+    await click(f, "回到最新");
+    assert.equal(f.scroll.scrollTop, 1600);
+    f.scroll.scrollHeight = 1800;
+    await f.publish({ ...f.state.sessions[0], revision: 3 });
+    assert.equal(f.scroll.scrollTop, 1800);
+  } finally {
+    await f.close();
+  }
+});
+
+test("send shortcut respects readiness and Chinese IME composition", async () => {
+  const preparing = { ...session("previous", "old"), agentState: "preparing" };
+  const f = await fixture({
+    connections: [{ ...old, online: true }],
+    sessions: [preparing],
+  });
+  const key = {
+    key: "Enter",
+    ctrlKey: true,
+    nativeEvent: {},
+    preventDefault() {},
+  };
+  try {
+    await act(async () =>
+      message(f).props.onChange({ target: { value: "中文消息" } }),
+    );
+    await act(async () => message(f).props.onKeyDown(key));
+    assert.equal(f.state.posts.length, 0);
+    await f.publish({ ...preparing, agentState: "ready", revision: 2 });
+    await act(async () => {
+      message(f).props.onCompositionStart();
+      message(f).props.onKeyDown(key);
+      message(f).props.onCompositionEnd();
+      message(f).props.onKeyDown({
+        ...key,
+        nativeEvent: { isComposing: true },
+      });
+      message(f).props.onKeyDown({ ...key, keyCode: 229 });
+    });
+    assert.equal(f.state.posts.length, 0);
+    await act(async () => message(f).props.onKeyDown(key));
+    assert.equal(f.state.posts.length, 1);
+    assert.equal(f.state.posts[0].body.text, "中文消息");
+  } finally {
+    await f.close();
+  }
+});
+
+test("a pending send preserves the next draft, including a conversation's first send", async () => {
+  for (const isNew of [false, true]) {
+    const f = await fixture({
+      connections: [{ ...old, online: true }],
+      ...(isNew ? { saved: "", sessions: [] } : {}),
+    });
+    let release;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    const post = f.state.post.bind(f.state);
+    f.state.post = async (url, options) => {
+      if (url.endsWith("/messages")) await gate;
+      return post(url, options);
+    };
+    try {
+      await act(async () =>
+        message(f).props.onChange({ target: { value: "send this" } }),
+      );
+      let sending;
+      await act(async () => {
+        sending = button(f, "发送").props.onClick();
+      });
+      await act(async () =>
+        message(f).props.onChange({ target: { value: "next draft" } }),
+      );
+      await act(async () => {
+        release();
+        await sending;
+      });
+      assert.equal(message(f).props.value, "next draft");
+      assert.equal(
+        f.state.posts.find((p) => p.url.endsWith("/messages")).body.text,
+        "send this",
+      );
+    } finally {
+      release();
+      await f.close();
+    }
+  }
+});
+
+test("Markdown renders structure without active HTML or remote images; code copying preserves LaTeX", async () => {
+  const code = String.raw`\frac{x}{y} < z & \alpha`;
+  const text = `## Answer\n\n**Strong** and [docs](https://example.com)\n\n- first\n- second\n\n\`\`\`latex\n${code}\n\`\`\`\n\n<img src=x onerror=alert(1)>\n\n[bad](javascript:alert(1)) ![remote](https://example.com/image.png)`;
+  let view, copied;
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: {
+      clipboard: {
+        writeText: async (value) => {
+          copied = value;
+        },
+      },
+    },
+  });
+  try {
+    await act(async () => {
+      view = create(
+        React.createElement(AgentMessage, {
+          message: { id: "m", role: "assistant", text },
+        }),
+      );
+    });
+    assert.equal(view.root.findAllByType("strong").length, 1);
+    assert.equal(view.root.findAllByType("li").length, 2);
+    assert.equal(view.root.findAllByType("img").length, 0);
+    assert.equal(view.root.findAllByType("script").length, 0);
+    assert.deepEqual(
+      view.root.findAllByType("a").map((a) => a.props.href),
+      ["https://example.com", "https://example.com/image.png"],
+    );
+    assert.ok(
+      view.root
+        .findAllByType("a")
+        .every((a) => a.props.rel === "noopener noreferrer"),
+    );
+    const copy = view.root
+      .findAllByType("button")
+      .find((b) => b.children.includes("复制代码"));
+    await act(async () => copy.props.onClick());
+    assert.equal(copied, code);
+  } finally {
+    if (view) await act(async () => view.unmount());
+    if (descriptor) Object.defineProperty(globalThis, "navigator", descriptor);
+    else delete globalThis.navigator;
+  }
+});
+
+test("tool disclosure keeps the reader's choice across streamed updates", async () => {
+  let view;
+  const tool = {
+    id: "tool",
+    role: "tool",
+    title: "Read file",
+    text: "result",
+    state: "in_progress",
+  };
+  try {
+    await act(async () => {
+      view = create(React.createElement(AgentMessage, { message: tool }));
+    });
+    assert.equal(view.root.findByType("details").props.open, false);
+    await act(async () =>
+      view.root.findByType("summary").props.onClick({ preventDefault() {} }),
+    );
+    await act(async () =>
+      view.update(
+        React.createElement(AgentMessage, {
+          message: { ...tool, state: "completed" },
+        }),
+      ),
+    );
+    assert.equal(view.root.findByType("details").props.open, true);
+    await act(async () =>
+      view.root.findByType("summary").props.onClick({ preventDefault() {} }),
+    );
+    await act(async () =>
+      view.update(
+        React.createElement(AgentMessage, {
+          message: { ...tool, state: "failed" },
+        }),
+      ),
+    );
+    assert.equal(view.root.findByType("details").props.open, false);
+  } finally {
+    if (view) await act(async () => view.unmount());
+  }
+});
 
 test("an online connector never replaces the conversation being read", async () => {
   const f = await fixture();

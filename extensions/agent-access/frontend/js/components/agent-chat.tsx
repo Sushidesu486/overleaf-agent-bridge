@@ -1,4 +1,11 @@
-import { useCallback, useContext, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import RailPanelHeader from "@/features/ide-react/components/rail/rail-panel-header";
 import { useProjectContext } from "@/shared/context/project-context";
 import { EditorOpenDocContext } from "@/features/ide-react/context/editor-open-doc-context";
@@ -12,6 +19,7 @@ import {
   postJSON,
   getUserFacingMessage,
 } from "@/infrastructure/fetch-json";
+import AgentMessage from "./agent-message";
 import AgentConnectionModal from "./agent-connection-modal";
 import {
   AgentConversationHistory,
@@ -41,7 +49,16 @@ export default function AgentChat() {
     [busy, setBusy] = useState(false);
   const [attachment, setAttachment] = useState<Attachment | undefined>();
   const [streaming, setStreaming] = useState(true);
-  const bottom = useRef<HTMLDivElement>(null);
+  const messages = useRef<HTMLDivElement>(null);
+  const followLatest = useRef(true);
+  const composing = useRef(false);
+  const [awayFromLatest, setAwayFromLatest] = useState(false);
+  function showLatest() {
+    followLatest.current = true;
+    setAwayFromLatest(false);
+    if (messages.current)
+      messages.current.scrollTop = messages.current.scrollHeight;
+  }
   const selectedSession = useRef("");
   const drafts = useRef(
     new Map<string, { text: string; attachment?: Attachment }>(),
@@ -55,6 +72,8 @@ export default function AgentChat() {
     const draft = drafts.current.get(id);
     setText(draft?.text || "");
     setAttachment(draft?.attachment);
+    followLatest.current = true;
+    setAwayFromLatest(false);
     selectedSession.current = id;
     setSessionId(id);
     setSession(null);
@@ -209,9 +228,10 @@ export default function AgentChat() {
     source.onerror = () => setStreaming(false);
     return () => source.close();
   }, [sessionId, storageKey, acceptSession, loaded]);
-  useEffect(() => {
-    bottom.current?.scrollIntoView({ block: "nearest" });
-  }, [session?.revision]);
+  useLayoutEffect(() => {
+    if (followLatest.current && messages.current)
+      messages.current.scrollTop = messages.current.scrollHeight;
+  }, [sessionId, session?.revision]);
   function attach(selected: boolean) {
     if (!editor?.currentDocumentId) return;
     const value: Attachment = {
@@ -236,16 +256,18 @@ export default function AgentChat() {
     setAttachment(value);
     setError("");
   }
+  const canSend = Boolean(
+    text.trim() &&
+      !busy &&
+      !running &&
+      !session?.archivedAt &&
+      active?.online &&
+      loaded &&
+      streaming &&
+      session?.agentState !== "preparing",
+  );
   async function send() {
-    if (
-      !text.trim() ||
-      busy ||
-      running ||
-      session?.archivedAt ||
-      !active?.online ||
-      !loaded
-    )
-      return;
+    if (!canSend) return;
     setBusy(true);
     setError("");
     try {
@@ -256,19 +278,22 @@ export default function AgentChat() {
           { body: { projectId, connectionId } },
         );
         id = created.id;
+        const currentInput = input.current;
         selectSession(id);
+        setText(currentInput.text);
+        setAttachment(currentInput.attachment);
       }
       const updated = await postJSON<ChatSession>(
         `/user/agent/chat/sessions/${id}/messages`,
         { body: { text, ...(attachment ? { attachment } : {}) } },
       );
       acceptSession(updated);
-      setText("");
-      setAttachment(undefined);
+      // Preserve text or a different attachment entered while the POST was pending.
+      if (input.current.text === text || input.current.text === "") setText("");
+      if (input.current.attachment === attachment) setAttachment(undefined);
       drafts.current.delete("");
+      showLatest();
     } catch (e) {
-      setText(text);
-      setAttachment(attachment);
       report(e);
     } finally {
       setBusy(false);
@@ -370,7 +395,19 @@ export default function AgentChat() {
             : "连接我的 Agent"}
         </OLButton>
       </div>
-      <div className="agent-chat-messages p-3" aria-label="Agent 对话记录">
+      <div
+        className="agent-chat-messages p-3"
+        aria-label="Agent 对话记录"
+        ref={messages}
+        onScroll={(event) => {
+          const element = event.currentTarget;
+          const following =
+            element.scrollHeight - element.clientHeight - element.scrollTop <
+            64;
+          followLatest.current = following;
+          setAwayFromLatest(!following);
+        }}
+      >
         {!sessionId && (
           <p className="small">
             连接自己的 Agent 后，在这里讨论当前项目、修改 LaTeX
@@ -378,50 +415,11 @@ export default function AgentChat() {
           </p>
         )}
         {session?.messages.map((message) => (
-          <div
-            key={message.id}
-            className={`agent-chat-message agent-message-${message.role}`}
-          >
-            {message.role === "tool" ? (
-              <details
-                open={
-                  message.state === "in_progress" || message.state === "pending"
-                }
-              >
-                <summary>
-                  {message.title || "工具调用"} ·{" "}
-                  {(
-                    {
-                      pending: "准备中",
-                      in_progress: "执行中",
-                      completed: "完成",
-                      failed: "失败",
-                    } as Record<string, string>
-                  )[message.state || ""] || message.state}
-                </summary>
-                <pre>{message.text}</pre>
-              </details>
-            ) : (
-              <>
-                <div className="agent-message-author small">
-                  {message.role === "user"
-                    ? "你"
-                    : message.role === "assistant"
-                      ? message.actorName || active?.name || "Agent"
-                      : "任务状态"}
-                </div>
-                <div className="agent-message-text">{message.text}</div>
-                {message.attachment && (
-                  <div className="small">
-                    附件：{message.attachment.name}
-                    {message.attachment.text
-                      ? ` · 选区 ${message.attachment.text.length} 字符`
-                      : ""}
-                  </div>
-                )}
-              </>
-            )}
-          </div>
+          <AgentMessage
+            key={`${session.id}:${message.id}`}
+            message={message}
+            agentName={active?.name}
+          />
         ))}
         {session?.permission && (
           <div className="agent-permission border rounded p-2">
@@ -450,8 +448,14 @@ export default function AgentChat() {
                 : "Agent 正在处理…"}
           </p>
         )}
-        <div ref={bottom} />
       </div>
+      {awayFromLatest && (
+        <div className="agent-chat-latest">
+          <OLButton size="sm" variant="secondary" onClick={showLatest}>
+            {session?.permission ? "需要你的选择 · 回到最新" : "回到最新"}
+          </OLButton>
+        </div>
+      )}
       <div className="agent-chat-composer p-3 border-top">
         {session?.archivedAt && (
           <div className="small mb-2" role="status">
@@ -554,8 +558,20 @@ export default function AgentChat() {
           }
           value={text}
           onChange={(e) => setText(e.target.value)}
+          onCompositionStart={() => {
+            composing.current = true;
+          }}
+          onCompositionEnd={() => {
+            composing.current = false;
+          }}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+            if (
+              composing.current ||
+              e.nativeEvent.isComposing ||
+              e.keyCode === 229
+            )
+              return;
+            if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && canSend) {
               e.preventDefault();
               void send();
             }
@@ -586,19 +602,7 @@ export default function AgentChat() {
               停止
             </OLButton>
           ) : (
-            <OLButton
-              variant="primary"
-              disabled={
-                busy ||
-                !loaded ||
-                Boolean(session?.archivedAt) ||
-                !active?.online ||
-                session?.agentState === "preparing" ||
-                !text.trim() ||
-                !streaming
-              }
-              onClick={send}
-            >
+            <OLButton variant="primary" disabled={!canSend} onClick={send}>
               发送
             </OLButton>
           )}
