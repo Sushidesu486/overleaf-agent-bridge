@@ -1,16 +1,14 @@
-# Overleaf Agent
+# Overleaf Agent Bridge
 
 Personal MCP links and a native Agent chat sidebar for self-hosted Overleaf. Sign in to Overleaf, generate a private URL, and paste it into an HTTP MCP client. The Agent reads, edits and compiles as that same human user. Links can be limited to selected projects, made read-only, regenerated or revoked.
 
-## Try the m701 lab
+Independent integration for self-hosted Overleaf Community Edition; this is not an official Overleaf product. The current build targets **CE 6.3.2** and uses version-specific source patches. It does not add MCP access to the hosted overleaf.com service.
 
-Repository: `/home/shouss/projects/overleaf-agent`. The isolated CE 6.3.2 lab listens only on m701's loopback interface. From your computer:
+## Try an isolated local instance
 
-```sh
-ssh -N -L 18080:127.0.0.1:18080 m701
-```
+Clone this repository and follow [Develop and verify](#develop-and-verify) through `npm run lab:bootstrap`. The Compose instance has its own MongoDB, Redis and project-file volumes, and exposes only `127.0.0.1:18080`. Run it on a Linux Docker host with enough memory for the native frontend build; that build allows an 8 GB Node heap.
 
-Open <http://localhost:18080/user/agent> and sign in. The navbar also has a “我的 Agent” link. Lab credentials are in `.local/lab-users.json` on m701; the first account is `lab-human@example.invalid`. These are separate from production accounts.
+Open <http://localhost:18080/user/agent> and sign in. The navbar also has a “我的 Agent” link. Bootstrap generates random passwords in the ignored `.local/lab-users.json`; the first account is `lab-human@example.invalid`. These are isolated test accounts. For a remote development host, forward the port with `ssh -N -L 18080:127.0.0.1:18080 <your-host>` and keep the tunnel running.
 
 The page uses Overleaf’s native account-settings layout, navigation and form components. In a project, the left “我的 Agent” tab opens chat; “连接我的 Agent” opens a native themed modal in place. Its “个人 MCP 链接” tab reuses the existing link controls and defaults to the current project. Both the page and editor follow the same Dark / Light / System preference.
 
@@ -24,7 +22,7 @@ The page uses Overleaf’s native account-settings layout, navigation and form c
    node overleaf-agent-connector.mjs --server http://localhost:18080 --runtime codex --pair
    ```
 
-   Paste the code at the hidden-input prompt. Keep this process and the SSH tunnel running. Later starts omit `--pair` and reuse the saved runtime.
+   Paste the code at the hidden-input prompt. Keep this process running, along with the tunnel when using a remote development host. Later starts omit `--pair` and reuse the saved runtime.
 4. When the sidebar shows online, send a message. It supports current-file/selection attachments, streamed replies, tool results, permission choices, stop, new conversations and saved conversations. Ctrl/Cmd+Enter sends a message.
 
 Use `--runtime claude` for Claude Code or `--runtime opencode` for an existing OpenCode installation. New connections default to Codex; saved connections keep their previous command. Codex uses `@agentclientprotocol/codex-acp@2.5.0`; Claude Code uses `@agentclientprotocol/claude-agent-acp@0.101.0`. The connector downloads the pinned adapter through `npx` on first start. Adapters include their compatible underlying harness; `CODEX_PATH` and `CLAUDE_CODE_EXECUTABLE` can select a particular local binary when needed. Authentication and billing follow the local harness. These are new sidebar sessions, separate from an already-open CLI/desktop conversation.
@@ -35,9 +33,23 @@ The sidebar follows a newly online connection when the previous one is offline. 
 
 For a custom ACP runtime use `--agent /path/to/program --agent-arg arg1`; it must advertise HTTP MCP support. Switching a saved preset uses a new pairing (`--pair`); `--config PATH` keeps several connections independently.
 
-The connector stores its credential and MCP URL in `~/.config/overleaf-agent/connector.json` (0600). `--config PATH` selects a separate connection profile. Credentials are sent only to the configured origin. Use the modal’s “停用” to revoke both the bridge and its MCP grant. Reconnection restores transcript context without replaying interrupted prompts. The original URL-only MCP workflow below remains available.
+The connector stores its credential and MCP URL in `~/.config/overleaf-agent/connector.json` (0600 on POSIX). `--config PATH` selects a separate connection profile. Credentials are sent only to the configured origin. Use the modal’s “停用” to revoke both the bridge and its MCP grant. Reconnection restores transcript context without replaying interrupted prompts. The original URL-only MCP workflow below remains available.
 
-Click “生成专属链接”, copy the URL into your client's HTTP MCP configuration, then ask the Agent to call `overleaf_whoami`. The URL works on a machine that can reach that loopback address through the tunnel; a cloud-hosted client needs a publicly reachable HTTPS deployment, which has not been set up yet.
+### Platform status
+
+| Component | Verified coverage |
+| --- | --- |
+| Overleaf server | Linux Compose, pinned CE 6.3.2 image and isolated data. |
+| macOS connector | Real Codex and Claude Code sidebar sessions, MCP editing and compilation. |
+| Linux connector | Automated ACP fixture and real bridge lifecycle checks; real model coverage is still to be expanded. |
+| Native Windows connector | Pending adaptation and device testing: npm `.cmd` launch, owned process-tree cleanup and credential ACLs. Node.js being available on Windows does not cover these integration steps. |
+| WSL2 connector | Candidate validation path; not yet tested. |
+
+Use Node.js 22+ for the connector. Windows support will be declared after pairing, read/edit/compile, cancellation, reconnection and revocation pass with both supported ACP presets on a real Windows host.
+
+## Connect an HTTP MCP client directly
+
+Click “生成专属链接”, copy the URL into your client's HTTP MCP configuration, then ask the Agent to call `overleaf_whoami`. The URL works on a machine that can reach the configured server address; a cloud-hosted client needs a publicly reachable HTTPS deployment. The supplied Compose lab exposes loopback only.
 
 Full links are shown only when generated. Keep them in personal client settings. “重新生成” invalidates the old URL; “停用” rejects subsequent requests. Already submitted edits remain. Optional project and action restrictions are under “访问范围与权限”.
 
@@ -63,7 +75,7 @@ History labels MCP edits as **Your agent** for the owner and **<owner name>'s ag
 
 ## Develop and verify
 
-Node.js 20.19+, Docker and Compose are required.
+Use Node.js 22+ for development, Docker and Compose. The core adapter's minimum runtime remains Node.js 20.19. These commands create an isolated lab; do not point the bootstrap or smoke scripts at a production database.
 
 ```sh
 npm ci
@@ -108,4 +120,8 @@ Live streams currently belong to one Overleaf Web worker. Keep one Web replica u
 
 The original three-tool stdio adapter remains available for protocol debugging. After `npm run build`, launch `node dist/src/server.js` with `OVERLEAF_AGENT_CONFIG` pointing to a mode-0600 lab configuration. It uses its own explicit project allowlist. The personal HTTP flow does not use those credentials.
 
-See [plan](docs/plan.md) and [verified progress](docs/progress.md). The development repository is private/unpublished; the standalone package license has not yet been selected. The image contains Overleaf and version-specific source patches; distribution must preserve upstream licensing requirements.
+## License and upstream
+
+This repository is licensed under [GNU AGPL v3](LICENSE) (`AGPL-3.0-only`). See [NOTICE](NOTICE) for the upstream baseline and attribution. Overleaf and bundled dependencies retain their own notices. This repository provides the source and build instructions for its extension and patches; the base image supplies Overleaf itself.
+
+See [plan](docs/plan.md) and [verified progress](docs/progress.md). Historical development notes describe an isolated lab and are not a production deployment guide. The npm package remains marked `private` to prevent accidental registry publication; the source repository can be public.

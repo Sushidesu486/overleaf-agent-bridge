@@ -1,7 +1,7 @@
 {
-  "name": "overleaf-agent",
+  "name": "overleaf-agent-bridge",
   "version": "0.4.0",
-  "description": "Independent MCP adapter for self-hosted Overleaf",
+  "description": "Personal MCP access and native agent collaboration for self-hosted Overleaf",
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
@@ -18,9 +18,15 @@
     "connect": "tsx src/connector/cli.ts",
     "build:connector": "esbuild src/connector/cli.ts --bundle --platform=node --format=esm --target=node20 --outfile=extensions/agent-access/public/overleaf-agent-connector.mjs"
   },
-  "keywords": [],
+  "keywords": [
+    "overleaf",
+    "latex",
+    "mcp",
+    "acp",
+    "agents"
+  ],
   "author": "",
-  "license": "UNLICENSED",
+  "license": "AGPL-3.0-only",
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.2",
     "cheerio": "1.2.0",

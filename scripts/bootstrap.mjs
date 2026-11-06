@@ -16,13 +16,13 @@ if (!existsSync(path))
       [
         {
           email: "lab-human@example.invalid",
-          first_name: "Shouss (Lab)",
+          first_name: "Human (Lab)",
           last_name: "",
           password: randomBytes(24).toString("base64url"),
         },
         {
           email: "lab-agent@example.invalid",
-          first_name: "Shouss 的 Agent (Lab)",
+          first_name: "Human's Agent (Lab)",
           last_name: "",
           password: randomBytes(24).toString("base64url"),
         },

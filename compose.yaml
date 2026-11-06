@@ -22,7 +22,7 @@ services:
     mem_limit: 512m
     cpus: 1
   redis:
-    image: harbor.clusters.zjusct.io/docker.io/library/redis@sha256:a7aad82554197a54c653388bfded882a59d6b4a02468484bc31bae6772dcc42c
+    image: docker.io/library/redis@sha256:a7aad82554197a54c653388bfded882a59d6b4a02468484bc31bae6772dcc42c
     command: ["redis-server", "--appendonly", "yes"]
     volumes: ["redis-data:/data"]
     mem_limit: 512m

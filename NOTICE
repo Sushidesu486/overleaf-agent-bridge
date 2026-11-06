@@ -1,0 +1,16 @@
+Overleaf Agent Bridge
+
+An independent integration for self-hosted Overleaf Community Edition.
+This project is not affiliated with or endorsed by Overleaf.
+
+Upstream project: https://github.com/overleaf/overleaf
+Upstream license: GNU Affero General Public License, version 3
+Tested base: Overleaf Community Edition 6.3.2
+Image: docker.io/sharelatex/sharelatex@sha256:d17e196b04222837440b5efb2890864eb200a2e9341e434c0e6bd57a61011cbb
+Revision reported by the base image: 370f4763da4bc910da8309c9a71c85ecbe39f6a7
+
+The patches/ directory modifies version-specific upstream behavior and checks
+the expected source before applying changes. The extensions/ directory adds
+the native account/editor UI and bundles the MCP and Agent bridge modules.
+Dockerfile records the base and the build steps. Upstream copyright notices
+and dependency licenses remain applicable to their respective code.
