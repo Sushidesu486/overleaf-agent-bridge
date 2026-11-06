@@ -107,7 +107,11 @@ function fixture() {
     },
     async interruptedSessions(connectionId) {
       return [...data.sessions.values()]
-        .filter((s) => s.connectionId === connectionId && s.runId)
+        .filter(
+          (s) =>
+            s.connectionId === connectionId &&
+            (s.runId || s.agentState === "preparing"),
+        )
         .map((s) => structuredClone(s));
     },
   };
@@ -273,5 +277,95 @@ test("permission replies and cancellation bind the active run; revocation and AC
   await assert.rejects(f.chat.authenticate(c.credential));
   await assert.rejects(
     f.agent.authenticate(new URL(c.mcpUrl).pathname.split("/").at(-1)!),
+  );
+});
+
+test("connection prepares a scoped conversation and readiness is isolated by connection", async () => {
+  const f = fixture(),
+    c = await f.paired(),
+    commands: BridgeCommand[] = [];
+  const attached = await f.chat.attach(
+    c.credential,
+    (x) => {
+      commands.push(x);
+      return true;
+    },
+    () => {},
+    true,
+  );
+  await f.chat.prepareConnection(c.credential);
+  const [session] = await f.chat.sessions("alice", project);
+  assert.equal(commands[0].type, "prepare");
+  assert.equal(
+    (await f.chat.session("alice", session.id)).agentState,
+    "preparing",
+  );
+  const other = await f.paired();
+  await f.chat.attach(
+    other.credential,
+    () => true,
+    () => {},
+    true,
+  );
+  await assert.rejects(
+    f.chat.prepared(other.credential, { sessionId: session.id }),
+    /会话不存在/,
+  );
+  await f.chat.prepared(c.credential, { sessionId: session.id });
+  assert.equal((await f.chat.session("alice", session.id)).agentState, "ready");
+  await attached.disconnect();
+  await f.chat.attach(
+    c.credential,
+    (x) => {
+      commands.push(x);
+      return true;
+    },
+    () => {},
+    true,
+  );
+  await f.chat.prepareConnection(c.credential);
+  assert.equal((await f.chat.sessions("alice", project)).length, 1);
+  assert.equal(commands[1].type, "prepare");
+  await f.chat.prepared(c.credential, {
+    sessionId: session.id,
+    error: "Please log in locally",
+  });
+  assert.equal((await f.chat.session("alice", session.id)).agentState, "error");
+});
+
+test("preparation interrupted before any prompt becomes retryable, including server restart", async () => {
+  const f = fixture(),
+    c = await f.paired();
+  const live = await f.chat.attach(
+    c.credential,
+    () => true,
+    () => {},
+    true,
+  );
+  const first = await f.chat.createSession("alice", {
+    connectionId: c.connectionId,
+    projectId: project,
+  });
+  const second = await f.chat.createSession("alice", {
+    connectionId: c.connectionId,
+    projectId: project,
+  });
+  await live.disconnect();
+  for (const s of [first, second])
+    assert.equal((await f.chat.session("alice", s.id)).agentState, "error");
+  await f.chat.attach(
+    c.credential,
+    () => true,
+    () => {},
+    true,
+  );
+  const third = await f.chat.createSession("alice", {
+    connectionId: c.connectionId,
+    projectId: project,
+  });
+  const restarted = new ChatService(f.store, f.agent);
+  assert.equal(
+    (await restarted.session("alice", third.id)).agentState,
+    "error",
   );
 });

@@ -26,6 +26,8 @@ export type ChatSession = {
     | "interrupted";
   runId: string | null;
   permission: ChatPermission | null;
+  agentState?: "preparing" | "ready" | "error";
+  agentError?: string;
   revision: number;
   createdAt: string;
   updatedAt: string;
@@ -46,6 +48,12 @@ export type Attachment = {
   to?: number;
 };
 export type BridgeCommand =
+  | {
+      type: "prepare";
+      sessionId: string;
+      projectId: string;
+      context: ChatMessage[];
+    }
   | {
       type: "prompt";
       sessionId: string;

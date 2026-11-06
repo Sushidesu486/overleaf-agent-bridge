@@ -123,6 +123,7 @@ type LiveConnection = {
   send: (command: BridgeCommand) => boolean;
   close: () => void;
   generation: string;
+  prepare: boolean;
 };
 
 /** One Web worker owns live connections. Durable sessions use revision CAS; interrupted turns are never replayed. */
@@ -314,6 +315,7 @@ export class ChatService {
     credential: string,
     send: LiveConnection["send"],
     close: LiveConnection["close"],
+    prepare = false,
   ) {
     const { connection } = await this.authenticate(credential);
     return this.lock(`connection:${connection.id}`, async () => {
@@ -325,7 +327,7 @@ export class ChatService {
         );
       // A server or connector restart leaves durable turns visibly interrupted, never queued for replay.
       await this.interruptConnection(connection.id);
-      const entry: LiveConnection = { send, close, generation: id() };
+      const entry: LiveConnection = { send, close, generation: id(), prepare };
       this.live.set(connection.id, entry);
       return {
         id: connection.id,
@@ -335,6 +337,63 @@ export class ChatService {
           await this.interruptConnection(connection.id);
         },
       };
+    });
+  }
+
+  private prepareSession(session: ChatSession) {
+    this.live.get(session.connectionId)?.send({
+      type: "prepare",
+      sessionId: session.id,
+      projectId: session.projectId,
+      context: session.messages
+        .filter((m) => m.role === "user" || m.role === "assistant")
+        .slice(-20),
+    });
+  }
+  async prepareConnection(credential: string) {
+    const { connection, grant } = await this.authenticate(credential);
+    if (grant.projects?.length !== 1) return;
+    const projectId = grant.projects[0];
+    await this.projectAccess(connection.userId, projectId);
+    const previous = (
+      await this.store.sessions(connection.userId, projectId)
+    ).find((s) => s.connectionId === connection.id);
+    if (!previous) {
+      await this.createSession(connection.userId, {
+        projectId,
+        connectionId: connection.id,
+      });
+      return;
+    }
+    await this.lock(previous.id, async () => {
+      const session = await this.session(connection.userId, previous.id, false);
+      session.agentState = "preparing";
+      delete session.agentError;
+      await this.save(session);
+      this.prepareSession(session);
+    });
+  }
+  async prepared(credential: string, input: unknown) {
+    const { connection } = await this.authenticate(credential);
+    const data = z
+      .object({ sessionId: objectId, error: z.string().max(2000).optional() })
+      .strict()
+      .parse(input);
+    return this.lock(data.sessionId, async () => {
+      const session = await this.session(
+        connection.userId,
+        data.sessionId,
+        false,
+      );
+      if (
+        session.connectionId !== connection.id ||
+        !this.live.has(connection.id)
+      )
+        throw new AgentError("NOT_FOUND", "连接会话不存在", 404);
+      session.agentState = data.error ? "error" : "ready";
+      session.agentError = data.error;
+      await this.save(session);
+      return { accepted: true };
     });
   }
 
@@ -367,7 +426,10 @@ export class ChatService {
       createdAt: now(),
       updatedAt: now(),
     };
+    const prepare = this.live.get(session.connectionId)?.prepare;
+    if (prepare) session.agentState = "preparing";
     await this.store.insert("sessions", session);
+    if (prepare) this.prepareSession(session);
     return session;
   }
   async session(userId: string, sessionId: string, recover = true) {
@@ -375,7 +437,11 @@ export class ChatService {
     if (!session || session.userId !== userId)
       throw new AgentError("NOT_FOUND", "会话不存在", 404);
     await this.projectAccess(userId, session.projectId);
-    if (recover && session.runId && !this.live.has(session.connectionId)) {
+    if (
+      recover &&
+      (session.runId || session.agentState === "preparing") &&
+      !this.live.has(session.connectionId)
+    ) {
       await this.interruptConnection(session.connectionId);
       return (await this.store.get("sessions", sessionId))!;
     }
@@ -557,6 +623,10 @@ export class ChatService {
     });
   }
   private async interruptSession(session: ChatSession, message: string) {
+    if (session.agentState === "preparing") {
+      session.agentState = "error";
+      session.agentError = "会话初始化中断，连接恢复后可重新发送消息。";
+    }
     session.status = "interrupted";
     session.runId = null;
     session.permission = null;
@@ -567,7 +637,7 @@ export class ChatService {
     for (const value of await this.store.interruptedSessions(connectionId)) {
       await this.lock(value.id, async () => {
         const session = await this.store.get("sessions", value.id);
-        if (session?.runId)
+        if (session && (session.runId || session.agentState === "preparing"))
           await this.interruptSession(
             session,
             "连接中断，任务未自动重放。请检查文档后继续。",

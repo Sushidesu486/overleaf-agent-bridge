@@ -67,6 +67,13 @@ export async function handleBridge(
         .end(JSON.stringify(result));
       return;
     }
+    if (path === "/session" && req.method === "POST") {
+      const result = await chat.prepared(credential, await jsonBody(req));
+      res
+        .writeHead(200, { "Content-Type": "application/json" })
+        .end(JSON.stringify(result));
+      return;
+    }
     if (path === "/events" && req.method === "POST") {
       const result = await chat.event(credential, await jsonBody(req));
       res
@@ -79,6 +86,7 @@ export async function handleBridge(
         credential,
         (command) => sendEvent(res, "command", command),
         () => res.end(),
+        req.headers["x-overleaf-agent-prepare"] === "1",
       );
       startEvents(res);
       sendEvent(res, "ready", { connectionId: connection.id });
@@ -99,6 +107,8 @@ export async function handleBridge(
         clearInterval(heartbeat);
         void connection.disconnect().catch(() => {});
       });
+      if (req.headers["x-overleaf-agent-prepare"] === "1")
+        await chat.prepareConnection(credential);
       return;
     }
     throw new AgentError("NOT_FOUND", "接口不存在", 404);

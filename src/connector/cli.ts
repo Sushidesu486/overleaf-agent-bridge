@@ -7,6 +7,8 @@ import { dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { createInterface } from "node:readline/promises";
 import { AcpRuntime } from "./acp.js";
+import { resolveRuntime, type RuntimeConfig } from "./runtime.js";
+import { runtimes } from "../../extensions/agent-access/shared/runtimes.js";
 import type { BridgeCommand } from "../../extensions/agent-access/shared/chat.js";
 export async function* events(body: ReadableStream<Uint8Array>) {
   const reader = body.getReader(),
@@ -40,14 +42,12 @@ export async function* events(body: ReadableStream<Uint8Array>) {
     reader.releaseLock();
   }
 }
-type Config = {
+type Config = RuntimeConfig & {
   origin: string;
   credential: string;
   mcpUrl: string;
   connectionId: string;
   name: string;
-  agent: string;
-  args: string[];
 };
 function origin(value: string) {
   const url = new URL(value);
@@ -75,6 +75,7 @@ async function main() {
       config: { type: "string" },
       pair: { type: "boolean" },
       "pair-code-file": { type: "string" },
+      runtime: { type: "string" },
       agent: { type: "string" },
       "agent-arg": { type: "string", multiple: true },
       help: { type: "boolean" },
@@ -82,7 +83,7 @@ async function main() {
   });
   if (values.help) {
     console.log(
-      "用法: node overleaf-agent-connector.mjs --server http://localhost:18080 [--pair] [--agent opencode --agent-arg acp]\n首次启动时粘贴弹窗中的一次性配对码。连接器运行期间可在网页侧栏聊天。\n可用 --config PATH 保存独立连接；凭据仅保存在本机权限 0600 的文件中。",
+      "用法: node overleaf-agent-connector.mjs --server http://localhost:18080 [--pair] [--runtime codex|claude|opencode]\n首次启动时粘贴弹窗中的一次性配对码。Codex / Claude Code 需要 Node.js 22+，首次启动会下载固定版本的 ACP 适配器。连接器运行期间可在网页侧栏聊天。\n可用 --config PATH 保存独立连接；凭据仅保存在本机权限 0600 的文件中。",
     );
     return;
   }
@@ -96,6 +97,20 @@ async function main() {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT")
       throw new Error("连接配置无法读取");
   }
+  const selected = resolveRuntime(
+    { runtime: values.runtime, agent: values.agent, args: values["agent-arg"] },
+    config,
+  );
+  if (selected.runtime) console.log(runtimes[selected.runtime].login);
+  if (
+    config &&
+    !values.pair &&
+    values.runtime &&
+    values.runtime !== config.runtime
+  )
+    throw new Error(
+      "切换 Agent 请使用 --pair 和新的配对码；可用 --config 保存不同的连接",
+    );
   if (!config || values.pair) {
     const server = origin(
       values.server || config?.origin || "http://localhost:18080",
@@ -121,15 +136,15 @@ async function main() {
         process.stdout.write("\n");
       }
     }
-    const agent = values.agent || config?.agent || "opencode";
-    const args =
-      values["agent-arg"] ||
-      config?.args ||
-      (agent === "opencode" ? ["acp"] : []);
     const response = await fetch(server + "/agent-bridge/pair", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code, runtime: agent.split("/").at(-1) }),
+      body: JSON.stringify({
+        code,
+        runtime: selected.runtime
+          ? runtimes[selected.runtime].label
+          : selected.agent.split("/").at(-1),
+      }),
       signal: AbortSignal.timeout(20_000),
       redirect: "error",
     });
@@ -138,8 +153,7 @@ async function main() {
     config = {
       ...((await response.json()) as Omit<Config, "origin" | "agent" | "args">),
       origin: server,
-      agent,
-      args,
+      ...selected,
     };
     await mkdir(dirname(path), { recursive: true, mode: 0o700 });
     await writeFile(path, JSON.stringify(config, null, 2), { mode: 0o600 });
@@ -156,8 +170,7 @@ async function main() {
     !/^\/mcp\/p\/[a-f0-9]{24}\.[A-Za-z0-9_-]{43}$/.test(mcp.pathname)
   )
     throw new Error("连接配置中的 MCP 地址无效");
-  const agent = values.agent || config.agent,
-    args = values["agent-arg"] || config.args;
+  const { agent, args } = selected;
   const cwd = join(dirname(path), "workspaces", config.connectionId);
   await mkdir(cwd, { recursive: true, mode: 0o700 });
   let stopping = false,
@@ -168,7 +181,10 @@ async function main() {
   };
   process.once("SIGINT", stop);
   process.once("SIGTERM", stop);
-  const headers = { "X-Overleaf-Agent-Bridge-Key": config.credential };
+  const headers = {
+    "X-Overleaf-Agent-Bridge-Key": config.credential,
+    "X-Overleaf-Agent-Prepare": "1",
+  };
   console.log(`连接 ${config.name}；Agent: ${agent}。按 Ctrl+C 停止。`);
   while (!stopping) {
     active = new AbortController();
@@ -179,6 +195,20 @@ async function main() {
       cwd,
       mcpUrl: config.mcpUrl,
       onExit: () => controller.abort(),
+      loginHint: selected.runtime
+        ? runtimes[selected.runtime].login
+        : undefined,
+      onSession: async (sessionId, error) => {
+        const response = await fetch(config!.origin + "/agent-bridge/session", {
+          method: "POST",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionId, error }),
+          signal: AbortSignal.timeout(20_000),
+          redirect: "error",
+        });
+        if (!response.ok)
+          throw new Error(`会话初始化回传失败（HTTP ${response.status}）`);
+      },
       emit: async (sessionId, runId, event) => {
         const response = await fetch(config!.origin + "/agent-bridge/events", {
           method: "POST",
@@ -216,9 +246,13 @@ async function main() {
         clearTimeout(heartbeat);
         heartbeat = setTimeout(() => controller.abort(), 35_000);
         if (event.event === "command")
-          void runtime
-            .command(event.data as BridgeCommand)
-            .catch(() => controller.abort());
+          void runtime.command(event.data as BridgeCommand).catch((error) => {
+            if (event.data.type === "prepare")
+              console.error(
+                error instanceof Error ? error.message : "会话初始化失败",
+              );
+            else controller.abort();
+          });
       }
     } catch (error) {
       if (!stopping)

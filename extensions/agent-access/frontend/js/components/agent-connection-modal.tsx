@@ -7,6 +7,8 @@ import {
   OLModalBody,
 } from "@/shared/components/ol/ol-modal";
 import OLButton from "@/shared/components/ol/ol-button";
+import OLFormSelect from "@/shared/components/ol/ol-form-select";
+import { runtimes, type RuntimeId } from "../../../shared/runtimes";
 import OLFormControl from "@/shared/components/ol/ol-form-control";
 import OLFormGroup from "@/shared/components/ol/ol-form-group";
 import OLFormLabel from "@/shared/components/ol/ol-form-label";
@@ -28,6 +30,7 @@ export default function AgentConnectionModal({
   onHide: () => void;
   refresh: () => void;
 }) {
+  const [runtime, setRuntime] = useState<RuntimeId>("codex");
   const [name, setName] = useState("我的 Agent");
   const [edit, setEdit] = useState(true),
     [compile, setCompile] = useState(true);
@@ -116,6 +119,22 @@ export default function AgentConnectionModal({
               <p>在自己的设备上运行连接器，继续使用自己的 Agent 和模型账号。</p>
               {error && <Notification type="error" content={error} />}
               <fieldset disabled={busy}>
+                <OLFormGroup controlId="chat-runtime">
+                  <OLFormLabel>使用的 Agent</OLFormLabel>
+                  <OLFormSelect
+                    value={runtime}
+                    onChange={(e) => setRuntime(e.target.value as RuntimeId)}
+                  >
+                    {Object.entries(runtimes).map(([id, item]) => (
+                      <option key={id} value={id}>
+                        {item.label}
+                      </option>
+                    ))}
+                  </OLFormSelect>
+                </OLFormGroup>
+                <p className="small">
+                  {runtimes[runtime].login} 模型账号留在本机。
+                </p>
                 <OLFormGroup controlId="chat-connection-name">
                   <OLFormLabel>连接名称</OLFormLabel>
                   <OLFormControl
@@ -159,18 +178,17 @@ export default function AgentConnectionModal({
                     下载连接器
                   </OLButton>
                   <p className="mt-3">
-                    下载后，在文件所在目录运行（需要 Node.js 20.19+）：
+                    下载后，在文件所在目录运行（需要 Node.js 22+）：
                   </p>
                   <pre className="agent-command">
                     <code>
                       node overleaf-agent-connector.mjs --server{" "}
-                      {pairing.server} --pair
+                      {pairing.server} --runtime {runtime} --pair
                     </code>
                   </pre>
                   <p className="small">
                     按终端提示粘贴下面的配对码。10
-                    分钟内有效，只能使用一次。默认启动 OpenCode；其他 ACP Agent
-                    可通过启动参数选择。
+                    分钟内有效，只能使用一次。首次启动会下载固定版本的适配器；连接成功后自动建立项目会话，后续消息复用该会话。
                   </p>
                   <OLFormGroup controlId="agent-pair-code">
                     <OLFormLabel>一次性配对码</OLFormLabel>

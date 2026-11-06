@@ -16,18 +16,22 @@ The page uses Overleaf’s native account-settings layout, navigation and form c
 
 ### Connect your own Agent to the sidebar
 
-1. Open a project → “我的 Agent” → “连接我的 Agent” → “侧栏聊天”. Choose its name and edit/compile permissions, then generate a pairing code. The code expires after 10 minutes and works once.
-2. Click “下载连接器”. Install Node.js 20.19+ and an ACP Agent on your own computer. OpenCode supports `opencode acp`; configure your model account there. The connector keeps using that local configuration.
+1. Open a project → “我的 Agent” → “连接我的 Agent” → “侧栏聊天”. Choose Codex, Claude Code or OpenCode, its name and edit/compile permissions, then generate a pairing code. The code expires after 10 minutes and works once.
+2. Click “下载连接器”. Install Node.js 22+ on your own computer. Sign in locally with `codex login` for Codex, or `claude` → `/login` for Claude Code; existing native model/provider configuration remains local. The connector keeps using that local configuration.
 3. In the downloaded file’s directory, run:
 
    ```sh
-   node overleaf-agent-connector.mjs --server http://localhost:18080 --pair
+   node overleaf-agent-connector.mjs --server http://localhost:18080 --runtime codex --pair
    ```
 
-   Paste the code at the hidden-input prompt. Keep this process and the SSH tunnel running. Later starts omit `--pair`.
+   Paste the code at the hidden-input prompt. Keep this process and the SSH tunnel running. Later starts omit `--pair` and reuse the saved runtime.
 4. When the sidebar shows online, send a message. It supports current-file/selection attachments, streamed replies, tool results, permission choices, stop, new conversations and saved conversations. Ctrl/Cmd+Enter sends a message.
 
-The default command is `opencode acp`. For another ACP runtime, use `--agent /path/to/program --agent-arg arg1 --agent-arg arg2`; it must advertise HTTP MCP support. Codex CLI/Claude Code need an appropriate ACP adapter; their ordinary interactive CLI commands are not ACP servers. Models and billing remain with the local Agent. This creates sidebar sessions; it does not attach to a pre-existing desktop chat.
+Use `--runtime claude` for Claude Code or `--runtime opencode` for an existing OpenCode installation. New connections default to Codex; saved connections keep their previous command. Codex uses `@agentclientprotocol/codex-acp@2.5.0`; Claude Code uses `@agentclientprotocol/claude-agent-acp@0.101.0`. The connector downloads the pinned adapter through `npx` on first start. Adapters include their compatible underlying harness; `CODEX_PATH` and `CLAUDE_CODE_EXECUTABLE` can select a particular local binary when needed. Authentication and billing follow the local harness. These are new sidebar sessions, separate from an already-open CLI/desktop conversation.
+
+On connection, a single-project link creates or restores its latest sidebar conversation and prepares the ACP session without a model turn. The MCP URL is installed as an HTTP tool server; the fixed project instructions use the negotiated `sessionCapabilities.systemPrompt` append mode. Later turns send only the new user message and optional editor context. Generic ACP runtimes without that capability receive the instructions once in their initial prompt. Reconnection recreates the runtime session and recovers bounded visible transcript context; it does not replay interrupted edits. New sidebar conversations receive separate sessions.
+
+For a custom ACP runtime use `--agent /path/to/program --agent-arg arg1`; it must advertise HTTP MCP support. Switching a saved preset uses a new pairing (`--pair`); `--config PATH` keeps several connections independently.
 
 The connector stores its credential and MCP URL in `~/.config/overleaf-agent/connector.json` (0600). `--config PATH` selects a separate connection profile. Credentials are sent only to the configured origin. Use the modal’s “停用” to revoke both the bridge and its MCP grant. Reconnection restores transcript context without replaying interrupted prompts. The original URL-only MCP workflow below remains available.
 

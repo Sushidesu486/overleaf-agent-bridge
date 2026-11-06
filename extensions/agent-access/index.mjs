@@ -321,7 +321,13 @@ const chatStore = {
   },
   async interruptedSessions(connectionId) {
     return (await chatCollection("sessions"))
-      .find({ connectionId, runId: { $ne: null } }, { projection: { _id: 0 } })
+      .find(
+        {
+          connectionId,
+          $or: [{ runId: { $ne: null } }, { agentState: "preparing" }],
+        },
+        { projection: { _id: 0 } },
+      )
       .toArray();
   },
 };

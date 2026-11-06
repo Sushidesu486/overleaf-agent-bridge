@@ -40,6 +40,7 @@ export default function AgentChat() {
   const [streaming, setStreaming] = useState(true);
   const bottom = useRef<HTMLDivElement>(null);
   const selectedSession = useRef("");
+  const autoSelect = useRef(true);
   const selectSession = useCallback((id: string) => {
     selectedSession.current = id;
     setSessionId(id);
@@ -100,12 +101,18 @@ export default function AgentChat() {
       .catch(report);
     const timer = setInterval(() => {
       void refresh().catch(() => {});
+      void refreshSessions().catch(() => {});
     }, 4000);
     return () => {
       disposed = true;
       clearInterval(timer);
     };
   }, [refresh, refreshSessions, storageKey, selectSession]);
+  useEffect(() => {
+    if (!autoSelect.current || selectedSession.current || !connectionId) return;
+    const prepared = sessions.find((s) => s.connectionId === connectionId);
+    if (prepared) selectSession(prepared.id);
+  }, [sessions, connectionId, selectSession]);
   useEffect(() => {
     setSession(null);
     setStreaming(!sessionId);
@@ -230,10 +237,25 @@ export default function AgentChat() {
             size="sm"
             variant="secondary"
             disabled={busy}
-            onClick={() => {
+            onClick={async () => {
+              autoSelect.current = false;
               selectSession("");
-              setSession(null);
               setError("");
+              if (!active?.online) return;
+              setBusy(true);
+              try {
+                const created = await postJSON<ChatSession>(
+                  "/user/agent/chat/sessions",
+                  { body: { projectId, connectionId: active.id } },
+                );
+                selectSession(created.id);
+                acceptSession(created);
+                await refreshSessions();
+              } catch (e) {
+                report(e);
+              } finally {
+                setBusy(false);
+              }
             }}
           >
             新对话
@@ -242,8 +264,13 @@ export default function AgentChat() {
         <OLFormSelect
           aria-label="选择 Agent"
           value={session?.connectionId || connectionId}
-          disabled={busy || Boolean(sessionId)}
-          onChange={(e) => setConnectionId(e.target.value)}
+          disabled={busy || running}
+          onChange={(e) => {
+            autoSelect.current = true;
+            selectSession("");
+            setConnectionId(e.target.value);
+            setError("");
+          }}
         >
           <option value="">选择连接</option>
           {connections
@@ -366,6 +393,9 @@ export default function AgentChat() {
       </div>
       <div className="agent-chat-composer p-3 border-top">
         {error && <Notification type="error" content={error} />}
+        {session?.agentError && (
+          <Notification type="error" content={session.agentError} />
+        )}
         {!streaming && (
           <p className="small" role="status">
             正在恢复消息连接…
@@ -421,7 +451,13 @@ export default function AgentChat() {
         />
         <div className="d-flex justify-content-between align-items-center mt-2">
           <span className="small">
-            {active?.online ? "连接器在线" : "连接器离线"}
+            {session?.agentState === "preparing"
+              ? "正在建立会话…"
+              : session?.agentState === "error"
+                ? "会话需要重试"
+                : active?.online
+                  ? "Agent 已连接"
+                  : "Agent 离线"}
           </span>
           {running ? (
             <OLButton
@@ -434,7 +470,13 @@ export default function AgentChat() {
           ) : (
             <OLButton
               variant="primary"
-              disabled={busy || !active?.online || !text.trim() || !streaming}
+              disabled={
+                busy ||
+                !active?.online ||
+                session?.agentState === "preparing" ||
+                !text.trim() ||
+                !streaming
+              }
               onClick={send}
             >
               发送

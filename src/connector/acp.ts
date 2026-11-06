@@ -9,6 +9,16 @@ import type {
   ChatPermission,
 } from "../../extensions/agent-access/shared/chat.js";
 type Json = Record<string, any>;
+type PreparedSession = {
+  id: string;
+  projectId: string;
+  initialContext: string;
+  sent: boolean;
+};
+type PrepareCommand = Extract<BridgeCommand, { type: "prepare" }>;
+export const applicationInstructions = (projectId: string) =>
+  `You are the user's agent in Overleaf. Work only on project ${projectId}. Use the overleaf MCP tools for project reads, edits and compilation; local files are not the live project. Read current document versions before edits. Do not repeat an edit whose outcome is unknown: read first. Preserve concurrent human edits. Reply in the user's language. Do not start background agents or tasks. The user's messages are the tasks to perform.`;
+
 type Run = {
   command: Extract<BridgeCommand, { type: "prompt" }>;
   acpSession?: string;
@@ -29,7 +39,7 @@ export class AcpRuntime {
     number,
     { resolve: (value: any) => void; reject: (error: Error) => void }
   >();
-  private sessions = new Map<string, string>();
+  private sessions = new Map<string, Promise<PreparedSession>>();
   private runs = new Map<string, Run>();
   private stopped = false;
   private terminated = false;
@@ -49,6 +59,8 @@ export class AcpRuntime {
         event: BridgeEvent,
       ) => Promise<void>;
       onExit?: () => void;
+      loginHint?: string;
+      onSession?: (sessionId: string, error?: string) => Promise<void>;
     },
   ) {
     this.process = spawn(options.command, options.args, {
@@ -84,7 +96,7 @@ export class AcpRuntime {
     this.ready = this.request("initialize", {
       protocolVersion: 1,
       clientCapabilities: {},
-      clientInfo: { name: "overleaf-agent-connector", version: "0.3.0" },
+      clientInfo: { name: "overleaf-agent-connector", version: "0.4.0" },
     });
     // Avoid an unhandled rejection while the connector is still pairing.
     this.ready.catch(() => {});
@@ -112,7 +124,7 @@ export class AcpRuntime {
       new Promise<never>((_, reject) => {
         const timer = setTimeout(
           () => reject(new Error("Agent 初始化超时")),
-          30_000,
+          120_000,
         );
         timer.unref();
       }),
@@ -123,6 +135,9 @@ export class AcpRuntime {
       );
     return {
       name: String(result.agentInfo?.name || this.options.command).slice(0, 80),
+      systemPrompt: Boolean(
+        result.agentCapabilities?.sessionCapabilities?.systemPrompt,
+      ),
     };
   }
   private clean(value: string) {
@@ -149,7 +164,11 @@ export class AcpRuntime {
       if (message.error)
         pending.reject(
           new Error(
-            this.clean(String(message.error.message || "Agent 请求失败")),
+            this.clean(String(message.error.message || "Agent 请求失败")) +
+              (/auth|login|sign.in/i.test(String(message.error.message)) &&
+              this.options.loginHint
+                ? `。${this.options.loginHint}`
+                : ""),
           ),
         );
       else pending.resolve(message.result);
@@ -260,7 +279,90 @@ export class AcpRuntime {
         text: run.text,
       });
   }
+  async prepare(command: PrepareCommand): Promise<PreparedSession> {
+    let pending = this.sessions.get(command.sessionId);
+    if (!pending) {
+      pending = this.createSession(command);
+      this.sessions.set(command.sessionId, pending);
+      pending.catch(() => {
+        if (this.sessions.get(command.sessionId) === pending)
+          this.sessions.delete(command.sessionId);
+      });
+    }
+    const session = await pending;
+    if (session.projectId !== command.projectId)
+      throw new Error("会话所属项目不一致");
+    return session;
+  }
+  private async createSession(
+    command: PrepareCommand,
+  ): Promise<PreparedSession> {
+    try {
+      const capabilities = await this.initialized();
+      const cwd = join(this.options.cwd, command.projectId);
+      await mkdir(cwd, { recursive: true, mode: 0o700 });
+      const instructions = applicationInstructions(command.projectId);
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const result = await Promise.race([
+        this.request("session/new", {
+          cwd,
+          mcpServers: [
+            {
+              type: "http",
+              name: "overleaf",
+              url: this.options.mcpUrl,
+              headers: [],
+            },
+          ],
+          ...(capabilities.systemPrompt
+            ? {
+                systemPrompt: {
+                  mode: "append",
+                  content: [{ type: "text", text: instructions }],
+                },
+              }
+            : {}),
+        }),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () =>
+              reject(new Error("Agent 创建会话超时，请检查本机登录和模型配置")),
+            90_000,
+          );
+        }),
+      ]).finally(() => clearTimeout(timer));
+      if (typeof result.sessionId !== "string" || !result.sessionId)
+        throw new Error("Agent 没有返回会话 ID");
+      const history = command.context
+        .map(
+          (m) =>
+            `${m.role}: ${m.text}${m.attachment ? "\nAttached context: " + JSON.stringify(m.attachment) : ""}`,
+        )
+        .join("\n\n")
+        .slice(-40_000);
+      const session = {
+        id: result.sessionId,
+        projectId: command.projectId,
+        sent: false,
+        initialContext: `${capabilities.systemPrompt ? "" : instructions + "\n"}${history ? "Previous conversation recovered after reconnect:\n" + history + "\n\n" : ""}`,
+      };
+      await this.options.onSession?.(command.sessionId);
+      return session;
+    } catch (error) {
+      await this.options.onSession?.(
+        command.sessionId,
+        this.clean(
+          error instanceof Error ? error.message : "Agent 创建会话失败",
+        ).slice(0, 2000),
+      );
+      throw error;
+    }
+  }
   async command(command: BridgeCommand) {
+    if (command.type === "prepare") {
+      await this.prepare(command);
+      return;
+    }
     if (command.type === "permission") {
       const run = this.runs.get(command.sessionId);
       const permission = run?.permissions.get(command.permissionId);
@@ -319,51 +421,29 @@ export class AcpRuntime {
     };
     this.runs.set(command.sessionId, run);
     try {
-      await this.initialized();
-      let acpSession = this.sessions.get(command.sessionId);
-      let restoring = false;
-      if (!acpSession) {
-        const cwd = join(this.options.cwd, command.projectId);
-        await mkdir(cwd, { recursive: true, mode: 0o700 });
-        const result = await this.request("session/new", {
-          cwd,
-          mcpServers: [
-            {
-              type: "http",
-              name: "overleaf",
-              url: this.options.mcpUrl,
-              headers: [],
-            },
-          ],
-        });
-        acpSession = String(result.sessionId);
-        this.sessions.set(command.sessionId, acpSession);
-        restoring = true;
-      }
+      const session = await this.prepare({
+        type: "prepare",
+        sessionId: command.sessionId,
+        projectId: command.projectId,
+        context: command.context,
+      });
+      const acpSession = session.id;
       run.acpSession = acpSession;
       if (run.cancelled) {
         await this.emit(run, { type: "done", reason: "cancelled" });
         return;
       }
-      const history = restoring
-        ? command.context
-            .map(
-              (m) =>
-                `${m.role}: ${m.text}${m.attachment ? "\nAttached context: " + JSON.stringify(m.attachment) : ""}`,
-            )
-            .join("\n\n")
-            .slice(-40_000)
-        : "";
       const attachment = command.attachment
-        ? `\nAttached editor context (may be stale; reread before editing):\n${JSON.stringify(command.attachment)}`
+        ? `Attached editor context (may be stale; reread before editing):\n${JSON.stringify(command.attachment)}\n\n`
         : "";
-      const instructions = `You are the user's agent in Overleaf. Work only on project ${command.projectId}. Use the overleaf MCP tools for project reads, edits and compilation; local files are not the live project. Read current document versions before edits. Do not repeat an edit whose outcome is unknown: read first. Preserve concurrent human edits. Reply in the user's language.\n`;
+      const prefix = session.sent ? "" : session.initialContext;
+      session.sent = true;
       const result = await this.request("session/prompt", {
         sessionId: acpSession,
         prompt: [
           {
             type: "text",
-            text: `${instructions}${history ? "\nPrevious conversation recovered after reconnect:\n" + history : ""}${attachment}\n\nUser message:\n${command.text}`,
+            text: `${prefix}${attachment}${command.text}`,
           },
         ],
       });

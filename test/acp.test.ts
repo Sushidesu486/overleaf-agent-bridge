@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { AcpRuntime } from "../src/connector/acp.js";
@@ -72,6 +72,71 @@ test("ACP queues consecutive turns, serializes concurrent permissions and emits 
       events.filter((e) => e.run === "fourth" && e.event.type === "done")
         .length,
       1,
+    );
+  } finally {
+    runtime.stop();
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("connection preparation creates one session with fixed tools/instructions and sends only subsequent prompts", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "overleaf-session-"));
+  const trace = join(cwd, "trace.jsonl");
+  const oldTrace = process.env.ACP_FIXTURE_TRACE;
+  process.env.ACP_FIXTURE_TRACE = trace;
+  const prepared: string[] = [];
+  const runtime = new AcpRuntime({
+    command: process.execPath,
+    args: [resolve("test/fixtures/acp-agent.mjs")],
+    cwd,
+    mcpUrl: "http://localhost/mcp/p/test",
+    emit: async () => {},
+    onSession: async (id) => {
+      prepared.push(id);
+    },
+  });
+  if (oldTrace === undefined) delete process.env.ACP_FIXTURE_TRACE;
+  else process.env.ACP_FIXTURE_TRACE = oldTrace;
+  try {
+    const prepare = {
+      type: "prepare" as const,
+      sessionId: "s",
+      projectId: "111111111111111111111111",
+      context: [],
+    };
+    await Promise.all([runtime.command(prepare), runtime.command(prepare)]);
+    const before = (await readFile(trace, "utf8"))
+      .trim()
+      .split("\n")
+      .map((x) => JSON.parse(x));
+    assert.equal(before.filter((x) => x.method === "session/new").length, 1);
+    assert.equal(before.filter((x) => x.method === "session/prompt").length, 0);
+    assert.deepEqual(prepared, ["s"]);
+    await runtime.command(command("one", "first message"));
+    await runtime.command(command("two", "second message"));
+    const requests = (await readFile(trace, "utf8"))
+      .trim()
+      .split("\n")
+      .map((x) => JSON.parse(x));
+    const session = requests.find((x) => x.method === "session/new").params;
+    assert.match(
+      session.systemPrompt.content[0].text,
+      /project 111111111111111111111111/,
+    );
+    assert.equal(session.systemPrompt.mode, "append");
+    assert.ok(!JSON.stringify(session.systemPrompt).includes("/mcp/p/"));
+    assert.equal(session.mcpServers[0].url, "http://localhost/mcp/p/test");
+    const prompts = requests
+      .filter((x) => x.method === "session/prompt")
+      .map((x) => x.params);
+    assert.equal(prompts[0].sessionId, prompts[1].sessionId);
+    assert.deepEqual(
+      prompts.map((x) => x.prompt[0].text),
+      ["first message", "second message"],
+    );
+    await assert.rejects(
+      runtime.prepare({ ...prepare, projectId: "222222222222222222222222" }),
+      /项目不一致/,
     );
   } finally {
     runtime.stop();

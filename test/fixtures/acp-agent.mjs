@@ -1,4 +1,5 @@
 import { createInterface } from "node:readline";
+import { appendFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -17,6 +18,8 @@ const request = (method, params) =>
     send({ id, method, params });
   });
 async function handle(m) {
+  if (process.env.ACP_FIXTURE_TRACE && m.method)
+    appendFileSync(process.env.ACP_FIXTURE_TRACE, JSON.stringify(m) + "\n");
   if (!m.method) {
     pending.get(m.id)?.(m.result);
     pending.delete(m.id);
@@ -27,7 +30,10 @@ async function handle(m) {
       id: m.id,
       result: {
         protocolVersion: 1,
-        agentCapabilities: { mcpCapabilities: { http: true } },
+        agentCapabilities: {
+          mcpCapabilities: { http: true },
+          sessionCapabilities: { systemPrompt: {} },
+        },
         agentInfo: { name: "ACP test fixture", version: "1" },
       },
     });
@@ -35,7 +41,11 @@ async function handle(m) {
   }
   if (m.method === "session/new") {
     const id = randomUUID();
-    sessions.set(id, m.params.mcpServers[0]?.url);
+    sessions.set(id, {
+      url: m.params.mcpServers[0]?.url,
+      instructions:
+        m.params.systemPrompt?.content.map((c) => c.text).join("\n") || "",
+    });
     send({ id: m.id, result: { sessionId: id } });
     return;
   }
@@ -74,13 +84,15 @@ async function handle(m) {
     );
   }
   if (user.includes("edit and compile")) {
-    const projectId = /project ([a-f0-9]{24})/.exec(text)[1];
+    const projectId = /project ([a-f0-9]{24})/.exec(
+      sessions.get(sessionId).instructions + text,
+    )[1];
     const client = new Client({
       name: "sidebar-integration-fixture",
       version: "1",
     });
     await client.connect(
-      new StreamableHTTPClientTransport(new URL(sessions.get(sessionId))),
+      new StreamableHTTPClientTransport(new URL(sessions.get(sessionId).url)),
     );
     async function call(name, args) {
       const result = await client.callTool({ name, arguments: args });
