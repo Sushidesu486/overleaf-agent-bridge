@@ -6,9 +6,15 @@ import ProjectGetter from "../../app/src/Features/Project/ProjectGetter.mjs";
 import UserSettingsHelper from "../../app/src/Features/Project/UserSettingsHelper.mjs";
 import AuthorizationManager from "../../app/src/Features/Authorization/AuthorizationManager.mjs";
 import CompileManager from "../../app/src/Features/Compile/CompileManager.mjs";
+import ClsiManager from "../../app/src/Features/Compile/ClsiManager.mjs";
+import LatexParser from "./native-latex-log-parser.mjs";
 import Settings from "@overleaf/settings";
 import bundled from "./mcp.cjs";
 const {
+  CompileLogs,
+  logPage,
+  compileDiagnostics,
+  compileNextAction,
   AgentService,
   AgentError,
   handleMcp,
@@ -115,11 +121,15 @@ async function tree(projectId) {
     name: 1,
     rootFolder: 1,
     rootDoc_id: 1,
+    compiler: 1,
+    imageName: 1,
   });
   if (!project) throw new AgentError("NOT_FOUND", "项目不存在", 404);
   return {
     id: projectId,
     name: project.name,
+    compiler: project.compiler,
+    imageName: project.imageName ?? null,
     rootDocId: project.rootDoc_id ? String(project.rootDoc_id) : null,
     entries: (project.rootFolder || []).flatMap((f) => flatten(f)),
   };
@@ -132,6 +142,36 @@ async function checkDoc(projectId, docId) {
   )
     throw new AgentError("NOT_FOUND", "文档不属于该项目", 404);
 }
+let compileBuildsPromise;
+function compileBuilds() {
+  return (compileBuildsPromise ??= collection("compile_builds")
+    .then(async (db) => {
+      await db.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+      return db;
+    })
+    .catch((error) => {
+      compileBuildsPromise = undefined;
+      throw error;
+    }));
+}
+const compileLogs = new CompileLogs(
+  async (projectId, userId, buildId) =>
+    (await compileBuilds()).findOne({
+      _id: `${projectId}:${userId}:${buildId}`,
+      projectId,
+      userId,
+      buildId,
+    }),
+  (build, file) =>
+    ClsiManager.promises.getOutputFileStream(
+      build.projectId,
+      build.compileAsUser,
+      // CE stores an absent CLSI shard as null; the native downloader expects undefined.
+      build.clsiServerId ?? undefined,
+      build.buildId,
+      file,
+    ),
+);
 const backend = {
   async user(id) {
     const u = await User.findById(id, {
@@ -233,6 +273,10 @@ const backend = {
         502,
       );
   },
+  async compileLog(projectId, userId, { buildId, file, offset, limit }) {
+    const log = await compileLogs.read(projectId, userId, buildId, file);
+    return logPage(buildId, file, log, offset, limit);
+  },
   async compile(projectId, userId, authorize) {
     const project = await tree(projectId);
     const observedAt = new Date().toISOString();
@@ -249,10 +293,87 @@ const backend = {
       draft: false,
       stopOnFirstError: false,
       incrementalCompilesEnabled: false,
+      fileLineErrors: true,
     });
+    await authorize();
+    let status = result.status || result.message || "unknown";
+    const outputFiles = (result.outputFiles || []).map(({ path, type }) => ({
+      path,
+      type,
+    }));
+    const availableLogs = outputFiles
+      .filter((file) => /\.(log|blg)$/.test(file.path))
+      .map((file) => file.path);
+    let log = {
+      available: false,
+      reason: "NO_LOG_OUTPUT",
+      files: availableLogs,
+    };
+    let diagnostics = null;
+    if (result.buildId) {
+      try {
+        await (
+          await compileBuilds()
+        ).insertOne({
+          _id: `${projectId}:${userId}:${result.buildId}`,
+          projectId,
+          userId,
+          buildId: result.buildId,
+          compileAsUser: Settings.disablePerUserCompiles ? undefined : userId,
+          clsiServerId: result.clsiServerId,
+          outputFiles,
+          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        });
+        const file = availableLogs.includes("output.log")
+          ? "output.log"
+          : availableLogs[0];
+        if (file) {
+          const source = await compileLogs.read(
+            projectId,
+            userId,
+            result.buildId,
+            file,
+          );
+          log = {
+            available: true,
+            file,
+            files: availableLogs,
+            totalCharacters: source.text.length,
+            sourceTruncated: source.truncated,
+          };
+          diagnostics = compileDiagnostics(
+            source.text,
+            (text) => new LatexParser(text).parse(),
+            project.entries,
+          );
+        }
+      } catch (error) {
+        log = {
+          available: false,
+          reason: error instanceof AgentError ? error.code : "LOG_UNAVAILABLE",
+          message:
+            error instanceof AgentError
+              ? error.message
+              : "编译已完成，但暂时无法获取日志；可重新编译后再试",
+          files: availableLogs,
+        };
+      }
+    }
+    await authorize();
+    const nativeStatus = status;
+    if (status === "success" && diagnostics?.errorCount) status = "failure";
+    const nextAction = compileNextAction(status, diagnostics, log);
     return {
-      status: result.status,
+      projectId,
+      status,
+      nativeStatus,
       buildId: result.buildId,
+      compiler: project.compiler,
+      rootDocId: project.rootDocId,
+      imageName: project.imageName,
+      diagnostics,
+      log,
+      nextAction,
       input: {
         mode: "live-project",
         snapshotPinned: false,
@@ -261,10 +382,7 @@ const backend = {
         historyVersion: result.baseHistoryVersion ?? null,
       },
       validationProblems: result.validationProblems,
-      outputFiles: result.outputFiles?.map((f) => ({
-        path: f.path,
-        type: f.type,
-      })),
+      outputFiles,
       editorUrl: `${publicOrigin}/project/${projectId}`,
     };
   },

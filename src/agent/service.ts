@@ -11,6 +11,18 @@ export class AgentError extends Error {
   }
 }
 export const objectId = z.string().regex(/^[a-f0-9]{24}$/);
+export const compileLogInput = z
+  .object({
+    projectId: objectId,
+    buildId: z
+      .string()
+      .regex(/^[a-f0-9]+-[a-f0-9]+$/)
+      .max(80),
+    file: z.string().max(240).default("output.log"),
+    offset: z.number().int().min(0).max(2_000_000).default(0),
+    limit: z.number().int().min(1).max(32_000).default(12_000),
+  })
+  .strict();
 export const action = z.enum(["read", "edit", "compile"]);
 export const grantInput = z
   .object({
@@ -64,6 +76,11 @@ export interface Backend {
     content: string,
     authorize: () => Promise<void>,
   ): Promise<void>;
+  compileLog(
+    projectId: string,
+    userId: string,
+    args: z.infer<typeof compileLogInput>,
+  ): Promise<unknown>;
   compile(
     projectId: string,
     userId: string,
@@ -219,6 +236,13 @@ export class AgentService {
         await this.authenticate(credential);
         await this.checkPrivilege(user.id, projectId, "compile");
       });
+    if (name === "overleaf_get_compile_log") {
+      const args = compileLogInput.parse(input);
+      const result = await this.backend.compileLog(projectId, user.id, args);
+      await this.authenticate(credential);
+      await this.checkPrivilege(user.id, projectId, "read");
+      return result;
+    }
     const { docId } = z.object({ docId: objectId }).parse(input);
     const doc = await this.backend.read(projectId, docId);
     if (name === "overleaf_read_document") return { projectId, docId, ...doc };

@@ -77,6 +77,9 @@ function fixture() {
       content = text;
       version++;
     },
+    async compileLog() {
+      return { text: "log" };
+    },
     async compile() {
       return { status: "success" };
     },
@@ -198,7 +201,7 @@ test("real HTTP MCP client uses only its URL; origin checks and revocation apply
   const client = new Client({ name: "fixture", version: "1" });
   t.after(() => client.close());
   await client.connect(new StreamableHTTPClientTransport(url));
-  assert.equal((await client.listTools()).tools.length, 6);
+  assert.equal((await client.listTools()).tools.length, 7);
   const result = await client.callTool({
     name: "overleaf_whoami",
     arguments: {},
@@ -242,4 +245,44 @@ test("revocation during backend preparation stops the pending edit before submis
   );
   assert.equal(submitted, false);
   assert.equal((await f.backend.read(projectId, docId)).version, 3);
+});
+
+test("compile-log reads require current project access, bind identity, and recheck revocation after fetching", async () => {
+  const f = fixture();
+  const link = await f.service.issue("alice", {
+    projects: [projectId],
+    actions: ["read"],
+  });
+  const args = { projectId, buildId: "abc-def" };
+  f.backend.compileLog = async (project, user, input) => {
+    assert.equal(project, projectId);
+    assert.equal(user, "alice");
+    assert.equal(input.file, "output.log");
+    return { text: "build log" };
+  };
+  assert.deepEqual(
+    await f.service.execute(key(link.url), "overleaf_get_compile_log", args),
+    { text: "build log" },
+  );
+  await assert.rejects(
+    f.service.execute(key(link.url), "overleaf_get_compile_log", {
+      ...args,
+      userId: "bob",
+    }),
+  );
+  await assert.rejects(
+    f.service.execute(key(link.url), "overleaf_get_compile_log", {
+      ...args,
+      projectId: "333333333333333333333333",
+    }),
+    /授权范围/,
+  );
+  f.backend.compileLog = async () => {
+    await f.service.revoke("alice", link.grant.id);
+    return { text: "must not be returned" };
+  };
+  await assert.rejects(
+    f.service.execute(key(link.url), "overleaf_get_compile_log", args),
+    /无效/,
+  );
 });

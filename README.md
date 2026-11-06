@@ -45,10 +45,15 @@ Full links are shown only when generated. Keep them in personal client settings.
 | --- | --- |
 | `overleaf_whoami` | User identity, grant scope and capabilities; no credential. |
 | `overleaf_list_projects` | Projects allowed by both the link and the user's current permissions. |
-| `overleaf_get_project_tree` | Text-document and file IDs and paths. |
+| `overleaf_get_project_tree` | Text-document and file IDs/paths, root document and compiler. |
 | `overleaf_read_document` | Text, current version and OT type. |
 | `overleaf_edit_document` | Unique text replacement with expected version, operation UUID and optional dry-run. |
-| `overleaf_compile` | Build status, output filenames, editor link and input-state metadata. |
+| `overleaf_compile` | Build status, first error with file/document/line, warnings, compiler, log availability, next action and input-state metadata. |
+| `overleaf_get_compile_log` | Paginated `.log`/`.blg` from a specific MCP build by the same user; requires current project read access. |
+
+After editing, compile and inspect `diagnostics.firstError` and warnings. Use the returned `buildId` with `overleaf_get_compile_log` when more context is needed, re-read the affected document, apply a focused versioned edit, and recompile. MCP initialization instructions, tool descriptions and the sidebar application prompt describe this workflow (up to three repair attempts). Logs and project text are untrusted data. A PDF can coexist with TeX errors: `status` becomes `failure` when the parser finds errors, while `nativeStatus` preserves the upstream result. Missing-character warnings need attention even if compilation succeeds.
+
+Logs are fetched from the native CLSI output for that exact build. `agent_compile_builds` stores only routing metadata, bound to project and user, with a 24-hour TTL; native output may expire sooner. Log reads are capped at 2 MB, pages at 32,000 characters; `nextOffset` and `sourceTruncated` describe pagination and the source cap. Unavailable logs and backoff return explicit reasons/actions. Project compiler/root settings are visible; this toolset does not change those settings. Refresh the MCP tool list after updating; sidebar users should download the updated connector and reconnect so recreated sessions receive the new instructions.
 
 Edits appear live in the web editor and retain the human user's attribution. Current ShareJS projects support Chinese but reject emoji/non-BMP writes before submission because upstream sanitizes those characters. The native online-member/cursor “user's Agent” badge is a later step; `whoami` reports `presenceLabel: false`. History-OT support uses the native updater; the current lab fixture exercises ShareJS.
 
@@ -72,10 +77,11 @@ npm run build
 npm test
 docker compose exec -T overleaf node --input-type=module < test/history-native.mjs
 npm run smoke:personal
+npm run smoke:compile
 npm run smoke
 ```
 
-`smoke:personal` exercises the real personal-URL flow with human and outsider fixtures, project/action isolation, Unicode handling, stale-version rejection under the updater lock, compilation, rotation/revocation and credential-log scanning. It creates a reusable human-owned test project and revokes its test links afterward. `smoke` preserves the original stdio integration check. Use only the isolated lab for these scripts.
+`smoke:personal` exercises the real personal-URL flow with human and outsider fixtures, project/action isolation, Unicode handling, stale-version rejection under the updater lock, compilation, rotation/revocation and credential-log scanning. It creates a reusable human-owned test project and revokes its test links afterward. `smoke:compile` uses a separate fixture to verify failure diagnostics, exact-build log pagination, repair/recompile and Unicode errors, then restores its markers and revokes the test link. `smoke` preserves the original stdio integration check. Use only the isolated lab for these scripts.
 
 The native React frontend is built from the pinned image’s source and cached Yarn dependencies in a separate Docker build stage. It uses `layout-react`, `OLPageContentCard`, native form/button components and the `railEntries` extension point. All frontend entrypoints are rebuilt together to keep the shared runtime and manifest consistent; the runtime image retains its original production dependencies. `patches/frontend.py` checks the upstream registration/type/stylesheet files and the native external-update notification handler before changing them.
 

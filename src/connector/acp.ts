@@ -8,6 +8,7 @@ import type {
   BridgeEvent,
   ChatPermission,
 } from "../../extensions/agent-access/shared/chat.js";
+import { compileWorkflow } from "../agent/compilation.js";
 type Json = Record<string, any>;
 type PreparedSession = {
   id: string;
@@ -17,7 +18,7 @@ type PreparedSession = {
 };
 type PrepareCommand = Extract<BridgeCommand, { type: "prepare" }>;
 export const applicationInstructions = (projectId: string) =>
-  `You are the user's agent in Overleaf. Work only on project ${projectId}. Use the overleaf MCP tools for project reads, edits and compilation; local files are not the live project. Read current document versions before edits. Do not repeat an edit whose outcome is unknown: read first. Preserve concurrent human edits. Reply in the user's language. Do not start background agents or tasks. The user's messages are the tasks to perform.`;
+  `You are the user's agent in Overleaf. Work only on project ${projectId}. Use the overleaf MCP tools for project reads, edits and compilation; local files are not the live project. Read current document versions before edits. Do not repeat an edit whose outcome is unknown: read first. Preserve concurrent human edits. Reply in the user's language. Do not start background agents or tasks. The user's messages are the tasks to perform. ${compileWorkflow}`;
 
 type Run = {
   command: Extract<BridgeCommand, { type: "prompt" }>;

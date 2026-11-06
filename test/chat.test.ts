@@ -65,6 +65,9 @@ function fixture() {
       return { content: "", version: 0 };
     },
     async edit() {},
+    async compileLog() {
+      return { text: "log" };
+    },
     async compile() {
       return {};
     },

@@ -15,4 +15,5 @@ COPY --from=frontend /opt/overleaf-agent/frontend-assets /overleaf/services/web/
 COPY patches/install.py /opt/overleaf-agent/install.py
 COPY patches/history.py /opt/overleaf-agent/history.py
 COPY patches/frontend.py /opt/overleaf-agent/frontend.py
-RUN test -s /overleaf/services/web/modules/agent-access/public/overleaf-agent-connector.mjs && test -s /overleaf/services/web/modules/agent-access/mcp.cjs && python3 /opt/overleaf-agent/install.py && python3 /opt/overleaf-agent/history.py && python3 /opt/overleaf-agent/frontend.py
+COPY patches/compile-parser.cjs /opt/overleaf-agent/compile-parser.cjs
+RUN test -s /overleaf/services/web/modules/agent-access/public/overleaf-agent-connector.mjs && test -s /overleaf/services/web/modules/agent-access/mcp.cjs && python3 /opt/overleaf-agent/install.py && python3 /opt/overleaf-agent/history.py && python3 /opt/overleaf-agent/frontend.py && node /opt/overleaf-agent/compile-parser.cjs

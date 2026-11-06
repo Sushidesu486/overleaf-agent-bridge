@@ -8,3 +8,5 @@
 !patches/history.py
 !patches/frontend.py
 !patches/build-frontend.cjs
+
+!patches/compile-parser.cjs
