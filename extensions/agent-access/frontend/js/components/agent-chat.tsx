@@ -41,6 +41,8 @@ export default function AgentChat() {
   const bottom = useRef<HTMLDivElement>(null);
   const selectedSession = useRef("");
   const autoSelect = useRef(true);
+  const autoConnect = useRef(true);
+  const [loaded, setLoaded] = useState(false);
   const selectSession = useCallback((id: string) => {
     selectedSession.current = id;
     setSessionId(id);
@@ -55,7 +57,13 @@ export default function AgentChat() {
         : value,
     );
   }, []);
-  const active = connections.find(
+  const projectConnections = connections.filter(
+    (c) => c.availableInProject !== false,
+  );
+  const otherConnections = connections.filter(
+    (c) => c.availableInProject === false && c.online && !c.revoked,
+  );
+  const active = projectConnections.find(
     (c) => c.id === (session?.connectionId || connectionId),
   );
   const running = Boolean(session?.runId);
@@ -68,14 +76,16 @@ export default function AgentChat() {
     );
   const refresh = useCallback(async () => {
     const data = await getJSON<PublicConnection[]>(
-      `/user/agent/chat/connections?projectId=${projectId}`,
+      `/user/agent/chat/connections?projectId=${projectId}&includeOthers=1`,
     );
     setConnections(data);
     setConnectionId(
       (current) =>
         current ||
-        data.find((c) => c.online && !c.revoked)?.id ||
-        data.find((c) => !c.revoked)?.id ||
+        data.find(
+          (c) => c.availableInProject !== false && c.online && !c.revoked,
+        )?.id ||
+        data.find((c) => c.availableInProject !== false && !c.revoked)?.id ||
         "",
     );
   }, [projectId]);
@@ -87,21 +97,26 @@ export default function AgentChat() {
     return data;
   }, [projectId]);
   useEffect(() => {
-    let disposed = false;
+    let disposed = false,
+      initialized = false;
+    const saved = localStorage.getItem(storageKey);
+    const loadSessions = async () => {
+      const data = await refreshSessions();
+      if (disposed || initialized) return;
+      initialized = true;
+      setLoaded(true);
+      setError("");
+      if (autoConnect.current) {
+        selectSession(
+          data.find((s) => s.id === saved)?.id || data[0]?.id || "",
+        );
+      }
+    };
     void refresh().catch(report);
-    void refreshSessions()
-      .then((data) => {
-        if (!disposed) {
-          const saved = localStorage.getItem(storageKey);
-          selectSession(
-            data.find((s) => s.id === saved)?.id || data[0]?.id || "",
-          );
-        }
-      })
-      .catch(report);
+    void loadSessions().catch(report);
     const timer = setInterval(() => {
       void refresh().catch(() => {});
-      void refreshSessions().catch(() => {});
+      void loadSessions().catch(() => {});
     }, 4000);
     return () => {
       disposed = true;
@@ -109,15 +124,55 @@ export default function AgentChat() {
     };
   }, [refresh, refreshSessions, storageKey, selectSession]);
   useEffect(() => {
+    if (!loaded || busy || running || text.trim() || attachment) return;
+    const current = connections.find(
+      (c) => c.id === (session?.connectionId || connectionId),
+    );
+    const online = connections.find(
+      (c) => c.availableInProject !== false && c.online && !c.revoked,
+    );
+    if (
+      autoConnect.current &&
+      !current?.online &&
+      online &&
+      current?.id !== online.id
+    ) {
+      setConnectionId(online.id);
+      selectSession(
+        sessions.find((s) => s.connectionId === online.id)?.id || "",
+      );
+      return;
+    }
     if (!autoSelect.current || selectedSession.current || !connectionId) return;
     const prepared = sessions.find((s) => s.connectionId === connectionId);
     if (prepared) selectSession(prepared.id);
-  }, [sessions, connectionId, selectSession]);
+  }, [
+    loaded,
+    busy,
+    running,
+    text,
+    attachment,
+    connections,
+    sessions,
+    connectionId,
+    session?.connectionId,
+    selectSession,
+  ]);
+  const useConnection = useCallback(
+    (id: string) => {
+      autoConnect.current = false;
+      autoSelect.current = true;
+      selectSession("");
+      setConnectionId(id);
+      setError("");
+    },
+    [selectSession],
+  );
   useEffect(() => {
     setSession(null);
     setStreaming(!sessionId);
     if (!sessionId) {
-      localStorage.removeItem(storageKey);
+      if (loaded) localStorage.removeItem(storageKey);
       return;
     }
     localStorage.setItem(storageKey, sessionId);
@@ -132,7 +187,7 @@ export default function AgentChat() {
     source.onopen = () => setStreaming(true);
     source.onerror = () => setStreaming(false);
     return () => source.close();
-  }, [sessionId, storageKey, acceptSession]);
+  }, [sessionId, storageKey, acceptSession, loaded]);
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: "nearest" });
   }, [session?.revision]);
@@ -238,6 +293,7 @@ export default function AgentChat() {
             variant="secondary"
             disabled={busy}
             onClick={async () => {
+              autoConnect.current = false;
               autoSelect.current = false;
               selectSession("");
               setError("");
@@ -266,14 +322,11 @@ export default function AgentChat() {
           value={session?.connectionId || connectionId}
           disabled={busy || running}
           onChange={(e) => {
-            autoSelect.current = true;
-            selectSession("");
-            setConnectionId(e.target.value);
-            setError("");
+            useConnection(e.target.value);
           }}
         >
           <option value="">选择连接</option>
-          {connections
+          {projectConnections
             .filter((c) => !c.revoked || c.id === session?.connectionId)
             .map((c) => (
               <option key={c.id} value={c.id}>
@@ -288,7 +341,11 @@ export default function AgentChat() {
             disabled={busy}
             value={sessionId}
             onChange={(e) => {
+              autoConnect.current = false;
+              autoSelect.current = false;
               selectSession(e.target.value);
+              const selected = sessions.find((s) => s.id === e.target.value);
+              if (selected) setConnectionId(selected.connectionId);
               setError("");
             }}
           >
@@ -392,6 +449,33 @@ export default function AgentChat() {
         <div ref={bottom} />
       </div>
       <div className="agent-chat-composer p-3 border-top">
+        {!active?.online &&
+          projectConnections.some((c) => c.online && !c.revoked) && (
+            <div className="small mb-2">
+              当前对话的 Agent 已离线。
+              <OLButton
+                size="sm"
+                variant="secondary"
+                disabled={running || busy}
+                onClick={() =>
+                  useConnection(
+                    projectConnections.find((c) => c.online && !c.revoked)!.id,
+                  )
+                }
+              >
+                使用在线 Agent
+              </OLButton>
+            </div>
+          )}
+        {!active?.online && otherConnections.length > 0 && (
+          <p className="small" role="status">
+            本地 Agent 已连接到其他项目：
+            {otherConnections
+              .map((c) => c.projectNames?.join("、") || c.name)
+              .join("；")}
+            。 要在当前项目使用，请在连接设置中为当前项目配对。
+          </p>
+        )}
         {error && <Notification type="error" content={error} />}
         {session?.agentError && (
           <Notification type="error" content={session.agentError} />
@@ -451,13 +535,15 @@ export default function AgentChat() {
         />
         <div className="d-flex justify-content-between align-items-center mt-2">
           <span className="small">
-            {session?.agentState === "preparing"
-              ? "正在建立会话…"
-              : session?.agentState === "error"
-                ? "会话需要重试"
-                : active?.online
-                  ? "Agent 已连接"
-                  : "Agent 离线"}
+            {!loaded
+              ? "正在读取连接状态…"
+              : !active?.online
+                ? "当前对话的 Agent 离线"
+                : session?.agentState === "preparing"
+                  ? "Agent 已连接，正在建立会话…"
+                  : session?.agentState === "error"
+                    ? "Agent 已连接，会话需要重试"
+                    : "Agent 已连接"}
           </span>
           {running ? (
             <OLButton
@@ -489,6 +575,7 @@ export default function AgentChat() {
           projectId={projectId}
           projectName={name || "当前项目"}
           connections={connections}
+          onConnected={useConnection}
           onHide={() => setModal(false)}
           refresh={() => {
             void refresh().catch(report);

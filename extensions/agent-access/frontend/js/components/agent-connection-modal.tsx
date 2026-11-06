@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Tab, TabContainer, TabContent, Nav, NavLink } from "react-bootstrap";
 import {
   OLModal,
@@ -22,12 +22,14 @@ export default function AgentConnectionModal({
   projectName,
   connections,
   onHide,
+  onConnected,
   refresh,
 }: {
   projectId: string;
   projectName: string;
   connections: PublicConnection[];
   onHide: () => void;
+  onConnected: (id: string) => void;
   refresh: () => void;
 }) {
   const [runtime, setRuntime] = useState<RuntimeId>("codex");
@@ -42,6 +44,28 @@ export default function AgentConnectionModal({
   const [busy, setBusy] = useState(false),
     [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
+  const selectedPairing = useRef("");
+  const pairedConnection =
+    pairing &&
+    connections.find(
+      (c) =>
+        c.pairingId === pairing.code.split(".")[0] &&
+        c.availableInProject !== false &&
+        c.online &&
+        !c.revoked,
+    );
+  useEffect(() => {
+    if (pairedConnection && selectedPairing.current !== pairedConnection.id) {
+      selectedPairing.current = pairedConnection.id;
+      onConnected(pairedConnection.id);
+    }
+  }, [pairedConnection, onConnected]);
+  const projectConnections = connections.filter(
+    (c) => c.availableInProject !== false && !c.revoked,
+  );
+  const elsewhere = connections.filter(
+    (c) => c.availableInProject === false && c.online && !c.revoked,
+  );
   async function pair() {
     setBusy(true);
     setError("");
@@ -168,7 +192,13 @@ export default function AgentConnectionModal({
                   生成配对码
                 </OLButton>
               </fieldset>
-              {pairing && (
+              {pairedConnection && (
+                <Notification
+                  type="success"
+                  content="连接成功，已为当前项目选中这个 Agent。关闭弹窗即可继续。"
+                />
+              )}
+              {pairing && !pairedConnection && (
                 <div className="agent-pairing mt-3 p-3 border rounded">
                   <OLButton
                     href="/user/agent/connector"
@@ -214,32 +244,39 @@ export default function AgentConnectionModal({
                 </div>
               )}
               <h4 className="mt-4">此项目的连接</h4>
-              {connections.filter((c) => !c.revoked).length ? (
-                connections
-                  .filter((c) => !c.revoked)
-                  .map((c) => (
-                    <div
-                      key={c.id}
-                      className="d-flex align-items-center justify-content-between gap-3 border-bottom py-2"
-                    >
-                      <div>
-                        <strong>{c.name}</strong>
-                        <div className="small">
-                          {c.runtime} · {c.online ? "在线" : "离线"}
-                        </div>
+              {projectConnections.length ? (
+                projectConnections.map((c) => (
+                  <div
+                    key={c.id}
+                    className="d-flex align-items-center justify-content-between gap-3 border-bottom py-2"
+                  >
+                    <div>
+                      <strong>{c.name}</strong>
+                      <div className="small">
+                        {c.runtime} · {c.online ? "在线" : "离线"}
                       </div>
-                      <OLButton
-                        variant="danger-ghost"
-                        size="sm"
-                        disabled={busy}
-                        onClick={() => revoke(c.id)}
-                      >
-                        停用
-                      </OLButton>
                     </div>
-                  ))
+                    <OLButton
+                      variant="danger-ghost"
+                      size="sm"
+                      disabled={busy}
+                      onClick={() => revoke(c.id)}
+                    >
+                      停用
+                    </OLButton>
+                  </div>
+                ))
               ) : (
                 <p>暂时没有连接。完成终端配对后，在线状态会自动更新。</p>
+              )}
+              {elsewhere.length > 0 && (
+                <p className="small" role="status">
+                  本地已有连接在线，但绑定其他项目：
+                  {elsewhere
+                    .map((c) => c.projectNames?.join("、") || c.name)
+                    .join("；")}
+                  。当前项目需要使用上方的配对码单独连接。
+                </p>
               )}
               <p className="small mt-3">
                 停用会撤销此连接的 MCP 授权，并停止接收新的任务。

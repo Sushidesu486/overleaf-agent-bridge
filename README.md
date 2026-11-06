@@ -31,6 +31,8 @@ Use `--runtime claude` for Claude Code or `--runtime opencode` for an existing O
 
 On connection, a single-project link creates or restores its latest sidebar conversation and prepares the ACP session without a model turn. The MCP URL is installed as an HTTP tool server; the fixed project instructions use the negotiated `sessionCapabilities.systemPrompt` append mode. Later turns send only the new user message and optional editor context. Generic ACP runtimes without that capability receive the instructions once in their initial prompt. Reconnection recreates the runtime session and recovers bounded visible transcript context; it does not replay interrupted edits. New sidebar conversations receive separate sessions.
 
+The sidebar follows a newly online connection when the previous one is offline. Draft text, attachments and explicitly selected history keep their current destination until you choose “使用在线 Agent”; a newly completed pairing selects its matching connection. Reloading restores the saved conversation, and a failed initial session lookup recovers on a later successful poll. Project-scoped connections stay scoped: the sidebar/modal explains when a local connector is online for another project, and the connector prints the authorized project names and links separately from session readiness.
+
 For a custom ACP runtime use `--agent /path/to/program --agent-arg arg1`; it must advertise HTTP MCP support. Switching a saved preset uses a new pairing (`--pair`); `--config PATH` keeps several connections independently.
 
 The connector stores its credential and MCP URL in `~/.config/overleaf-agent/connector.json` (0600). `--config PATH` selects a separate connection profile. Credentials are sent only to the configured origin. Use the modal’s “停用” to revoke both the bridge and its MCP grant. Reconnection restores transcript context without replaying interrupted prompts. The original URL-only MCP workflow below remains available.
@@ -78,10 +80,11 @@ npm test
 docker compose exec -T overleaf node --input-type=module < test/history-native.mjs
 npm run smoke:personal
 npm run smoke:compile
+npm run smoke:connection
 npm run smoke
 ```
 
-`smoke:personal` exercises the real personal-URL flow with human and outsider fixtures, project/action isolation, Unicode handling, stale-version rejection under the updater lock, compilation, rotation/revocation and credential-log scanning. It creates a reusable human-owned test project and revokes its test links afterward. `smoke:compile` uses a separate fixture to verify failure diagnostics, exact-build log pagination, repair/recompile and Unicode errors, then restores its markers and revokes the test link. `smoke` preserves the original stdio integration check. Use only the isolated lab for these scripts.
+`smoke:personal` exercises the real personal-URL flow with human and outsider fixtures, project/action isolation, Unicode handling, stale-version rejection under the updater lock, compilation, rotation/revocation and credential-log scanning. It creates a reusable human-owned test project and revokes its test links afterward. `smoke:compile` uses a separate fixture to verify failure diagnostics, exact-build log pagination, repair/recompile and Unicode errors, then restores its markers and revokes the test link. `smoke:connection` uses that isolated project and a downloaded connector with the ACP fixture to verify pairing, readiness, two message turns, stop/offline, reconnect without replay, and cross-project status visibility. It revokes its test connection and removes the temporary credentials. `smoke` preserves the original stdio integration check. Use only the isolated lab for these scripts.
 
 The native React frontend is built from the pinned image’s source and cached Yarn dependencies in a separate Docker build stage. It uses `layout-react`, `OLPageContentCard`, native form/button components and the `railEntries` extension point. All frontend entrypoints are rebuilt together to keep the shared runtime and manifest consistent; the runtime image retains its original production dependencies. `patches/frontend.py` checks the upstream registration/type/stylesheet files and the native external-update notification handler before changing them.
 

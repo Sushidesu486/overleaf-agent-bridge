@@ -28,6 +28,7 @@ export type Connection = {
   userId: string;
   grantId: string;
   grantDigest: string;
+  pairingId?: string;
   name: string;
   runtime: string;
   revoked: boolean;
@@ -203,6 +204,7 @@ export class ChatService {
       userId: pairing.userId,
       grantId: grant.id,
       grantDigest: grant.digest,
+      pairingId: pairing.id,
       name: pairing.input.name,
       runtime: data.runtime,
       revoked: false,
@@ -274,26 +276,44 @@ export class ChatService {
   async connections(
     userId: string,
     projectId: string,
+    includeOthers = false,
   ): Promise<PublicConnection[]> {
     await this.projectAccess(userId, projectId);
+    const projects = includeOthers
+      ? await this.agent.backend.projects(userId)
+      : [];
     return (
       await Promise.all(
-        (await this.store.connections(userId)).map(async (c) => {
-          let grant: Grant | null = null;
-          try {
-            grant = await this.connectionGrant(c);
-          } catch {}
-          if (grant?.projects && !grant.projects.includes(projectId))
-            return null;
-          return {
-            id: c.id,
-            name: c.name,
-            runtime: c.runtime,
-            projects: grant ? grant.projects : [],
-            online: Boolean(grant && this.live.has(c.id)),
-            revoked: c.revoked || !grant,
-          };
-        }),
+        (await this.store.connections(userId)).map(
+          async (c): Promise<PublicConnection | null> => {
+            let grant: Grant | null = null;
+            try {
+              grant = await this.connectionGrant(c);
+            } catch {}
+            const availableInProject =
+              !grant?.projects || grant.projects.includes(projectId);
+            if (!availableInProject && !includeOthers) return null;
+            return {
+              id: c.id,
+              name: c.name,
+              runtime: c.runtime,
+              projects: grant ? grant.projects : [],
+              online: Boolean(grant && this.live.has(c.id)),
+              revoked: c.revoked || !grant,
+              pairingId: c.pairingId,
+              availableInProject,
+              projectNames: grant
+                ? projects
+                    .filter(
+                      (p) =>
+                        grant.projects === null ||
+                        grant.projects.includes(p.id),
+                    )
+                    .map((p) => p.name)
+                : [],
+            };
+          },
+        ),
       )
     ).filter((c): c is PublicConnection => c !== null);
   }
@@ -317,7 +337,10 @@ export class ChatService {
     close: LiveConnection["close"],
     prepare = false,
   ) {
-    const { connection } = await this.authenticate(credential);
+    const { connection, grant } = await this.authenticate(credential);
+    const projects = (
+      await this.agent.backend.projects(connection.userId)
+    ).filter((p) => grant.projects === null || grant.projects.includes(p.id));
     return this.lock(`connection:${connection.id}`, async () => {
       if (this.live.has(connection.id))
         throw new AgentError(
@@ -331,6 +354,7 @@ export class ChatService {
       this.live.set(connection.id, entry);
       return {
         id: connection.id,
+        projects,
         disconnect: async () => {
           if (this.live.get(connection.id) !== entry) return;
           this.live.delete(connection.id);

@@ -208,6 +208,8 @@ async function main() {
         });
         if (!response.ok)
           throw new Error(`会话初始化回传失败（HTTP ${response.status}）`);
+        if (!error)
+          console.log("项目会话已就绪，可以在对应项目的 Agent 侧栏发送消息。");
       },
       emit: async (sessionId, runId, event) => {
         const response = await fetch(config!.origin + "/agent-bridge/events", {
@@ -225,6 +227,7 @@ async function main() {
     });
     let heartbeat: ReturnType<typeof setTimeout> | undefined;
     try {
+      console.log("正在启动本地 Agent…");
       await runtime.initialized();
       const response = await fetch(config.origin + "/agent-bridge/connect", {
         headers,
@@ -241,10 +244,26 @@ async function main() {
       }
       if (!response.ok || !response.body)
         throw new Error(`连接失败（HTTP ${response.status}）`);
-      console.log("已连接，可在 Overleaf 项目侧栏发送消息。");
+      console.log("已连到 Overleaf，等待连接确认和项目会话…");
       for await (const event of events(response.body)) {
         clearTimeout(heartbeat);
         heartbeat = setTimeout(() => controller.abort(), 35_000);
+        if (event.event === "ready") {
+          if (event.data.connectionId !== config.connectionId)
+            throw new Error("服务端返回的连接身份不匹配，请重新连接");
+          console.log("连接已确认。当前连接可用于这些项目：");
+          if (Array.isArray(event.data.projects)) {
+            for (const project of event.data.projects) {
+              if (
+                /^[a-f0-9]{24}$/.test(project.id) &&
+                typeof project.name === "string"
+              )
+                console.log(
+                  `  ${project.name.replace(/[\r\n\x1b]/g, " ")} — ${config.origin}/project/${project.id}`,
+                );
+            }
+          } else console.log("  请在网页连接设置中查看授权项目。");
+        }
         if (event.event === "command")
           void runtime.command(event.data as BridgeCommand).catch((error) => {
             if (event.data.type === "prepare")

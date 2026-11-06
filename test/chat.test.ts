@@ -372,3 +372,34 @@ test("preparation interrupted before any prompt becomes retryable, including ser
     "error",
   );
 });
+
+test("connection status distinguishes other project scopes without granting access, and correlates the pairing", async () => {
+  const f = fixture(),
+    c = await f.paired();
+  const live = await f.chat.attach(
+    c.credential,
+    () => true,
+    () => {},
+  );
+  try {
+    assert.deepEqual(live.projects, [{ id: project, name: "Test" }]);
+    const current = await f.chat.connections("alice", project, true);
+    assert.equal(current[0].online, true);
+    assert.equal(current[0].availableInProject, true);
+    assert.equal(current[0].pairingId, c.code.split(".")[0]);
+    const other = "222222222222222222222222";
+    assert.equal((await f.chat.connections("alice", other)).length, 0);
+    const elsewhere = await f.chat.connections("alice", other, true);
+    assert.equal(elsewhere[0].availableInProject, false);
+    assert.deepEqual(elsewhere[0].projectNames, ["Test"]);
+    await assert.rejects(
+      f.chat.createSession("alice", {
+        projectId: other,
+        connectionId: c.connectionId,
+      }),
+      /未授权/,
+    );
+  } finally {
+    await live.disconnect();
+  }
+});

@@ -532,7 +532,13 @@ export default {
       );
       webRouter.get(
         "/user/agent/chat/connections",
-        route((userId, req) => chat.connections(userId, req.query.projectId)),
+        route((userId, req) =>
+          chat.connections(
+            userId,
+            req.query.projectId,
+            req.query.includeOthers === "1",
+          ),
+        ),
       );
       webRouter.post(
         "/user/agent/chat/connections/:id/revoke",

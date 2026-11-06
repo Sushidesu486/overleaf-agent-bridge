@@ -39,6 +39,9 @@ export type PublicConnection = {
   projects: string[] | null;
   online: boolean;
   revoked: boolean;
+  pairingId?: string;
+  availableInProject?: boolean;
+  projectNames?: string[];
 };
 export type Attachment = {
   docId: string;

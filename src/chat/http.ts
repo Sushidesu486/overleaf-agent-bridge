@@ -89,7 +89,10 @@ export async function handleBridge(
         req.headers["x-overleaf-agent-prepare"] === "1",
       );
       startEvents(res);
-      sendEvent(res, "ready", { connectionId: connection.id });
+      sendEvent(res, "ready", {
+        connectionId: connection.id,
+        projects: connection.projects,
+      });
       let checking = false;
       const heartbeat = setInterval(async () => {
         if (checking) return;
