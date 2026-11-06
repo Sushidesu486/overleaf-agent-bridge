@@ -12,6 +12,8 @@ Open <http://localhost:18080/user/agent> and sign in. The navbar also has a “�
 
 The page uses Overleaf’s native account-settings layout, navigation and form components. In a project, the left “我的 Agent” tab opens chat; “连接我的 Agent” opens a native themed modal in place. Its “个人 MCP 链接” tab reuses the existing link controls and defaults to the current project. Both the page and editor follow the same Dark / Light / System preference.
 
+The image includes TeX Live's `collection-langchinese`, `ctex` and `xecjk`, with Chinese fonts. Existing `CJKutf8` documents can use pdfLaTeX; `ctexart` documents can select XeLaTeX with `fontset=fandol`. The build compiles both examples and rejects missing glyphs. Re-run this check with `docker compose exec -T overleaf sh /opt/overleaf-agent/check-texlive.sh`. The `TEXLIVE_REPOSITORY` build argument can select a reachable CTAN mirror; its TeX Live release must match the base image (currently 2026). When that release is archived, use its `tlnet-final` repository. Additional project-specific packages and proprietary fonts still need to be supplied separately.
+
 ### Connect your own Agent to the sidebar
 
 1. Open a project → “我的 Agent” → “连接我的 Agent” → “侧栏聊天”. Choose Codex, Claude Code or OpenCode, its name and edit/compile permissions, then generate a pairing code. The code expires after 10 minutes and works once.

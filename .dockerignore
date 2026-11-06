@@ -10,3 +10,5 @@
 !patches/build-frontend.cjs
 
 !patches/compile-parser.cjs
+!scripts/
+!scripts/check-texlive.sh

@@ -47,6 +47,15 @@ Verified 2026-11-06T20:15:18+08:00 against the independent m701 test checkout an
 - Ctrl/Cmd+Enter shares the button's ready/online/streaming checks and ignores active IME composition. The composer retains new text/attachments entered during an in-flight send, including the first send of a conversation.
 - Core typecheck/build, all 45 tests, native frontend/image build and the existing compilation smoke passed. Chrome with the downloaded connector and an ACP fixture verified Markdown, decoded entities, exact LaTeX clipboard contents, no active HTML or automatic remote image fetch, tool expansion and reading-position preservation. Dark/light desktop layouts and content containment in a narrow sidebar were inspected. The native editor's full multi-panel layout remains cramped at phone widths; this change does not redesign it. No page errors; temporary connection revoked.
 
+### Chinese compilation follow-up
+
+Verified 2026-11-06T22:50+08:00 on the independent port-18081 preview. Runtime image: `sha256:fd3163f188654e95fe7975c4ecfa23473960540453191906d20b94a902118287`, retaining upstream revision `370f4763da4bc910da8309c9a71c85ecbe39f6a7`.
+
+- Reproduced `File CJKutf8.sty not found` both with a minimal container compile and through MCP in a dedicated Chinese fixture. The base TeX Live installation omitted CJK, ctex and their fonts.
+- The Dockerfile installs `collection-langchinese`, `ctex` and `xecjk`; the collection alone did not include ctex in the tested repository. It updates `tlmgr` and `texlive-scripts` together: updating only the manager made the older format generator reject combined `byengine`/`byhyphen` options. Existing LaTeX packages are not blanket-updated. `TEXLIVE_REPOSITORY` selects a mirror matching the base's TeX Live year; this build used TUNA's verified 2026 repository.
+- The image build runs `scripts/check-texlive.sh`, compiling CJKutf8/pdfLaTeX and ctex/Fandol/XeLaTeX and rejecting missing glyphs. Both also passed as `www-data` in the recreated container. The MCP fixture now returns `success` with no first error; a separate native web compile downloaded its 74,638-byte PDF. Temporary MCP grants were revoked.
+- Typecheck, all 45 tests, legacy compile/PDF smoke and compile-diagnostics smoke passed. Preview health is normal and the SSH tunnel remains available. The original port-18080 lab and production were not updated. The user's specific source project has not yet been identified; the two pre-existing preview fixtures contained no CJKutf8 document.
+
 ## Previously delivered to the original lab
 
 - Repository `/home/shouss/projects/overleaf-agent`, branch `main`, no Git remote configured. User-facing page: `http://localhost:18080/user/agent` through an SSH tunnel.
