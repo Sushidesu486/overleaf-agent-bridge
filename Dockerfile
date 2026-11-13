@@ -41,4 +41,9 @@ COPY patches/history.py /opt/overleaf-agent/history.py
 COPY patches/frontend.py /opt/overleaf-agent/frontend.py
 COPY patches/site.py /opt/overleaf-agent/site.py
 COPY patches/compile-parser.cjs /opt/overleaf-agent/compile-parser.cjs
+# Source archives may be extracted with a private umask. Runtime workers use
+# www-data and need to read the bundled modules and connector assets.
+RUN chmod -R a+rX /overleaf/services/web/modules/agent-access /overleaf/services/web/modules/site-access \
+    && /sbin/setuser www-data test -r /overleaf/services/web/modules/agent-access/history-actors.mjs \
+    && /sbin/setuser www-data test -r /overleaf/services/web/modules/agent-access/public/overleaf-agent-connector.mjs
 RUN test -s /overleaf/services/web/modules/agent-access/public/overleaf-agent-connector.mjs && test -s /overleaf/services/web/modules/agent-access/mcp.cjs && python3 /opt/overleaf-agent/install.py && python3 /opt/overleaf-agent/history.py && python3 /opt/overleaf-agent/frontend.py && python3 /opt/overleaf-agent/site.py && node /opt/overleaf-agent/compile-parser.cjs
