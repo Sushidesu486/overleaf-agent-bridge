@@ -1,5 +1,16 @@
 # Development progress
 
+## Production deployment (2026-11-13)
+
+The user-approved Argo cutover is complete at `https://latex.clusters.zjusct.io` and `https://latex.s.zjusct.io`. GitOps revision `d10ed22c60cd029f1e6d2c9fcbf4f4cd06b842c9` is Healthy/Synced with automatic synchronization restored. The release is built from source commit `2da0404`, image `harbor.clusters.zjusct.io/library/overleaf-agent@sha256:fd4e73af7d0c448c0b50d75429c83264101d11d1929b43908b3493200560d036`, with CE 6.3.2, MongoDB 8.0.34, Redis 8.8.1 and the complete TeX Live 2026 runtime.
+
+- Rehearsed the legacy fork → CE 5.5.8 file migration → CE 6.3.2 and MongoDB 6 → 7 → 8 on independent storage before stopping the source. The final stopped-source restore retained 47 accounts, 178 projects, 3 administrators and 29 deleted projects. Account IDs, emails, password records and project membership fingerprints matched at each step; all 6,703 attachment references were present. Native email login was exercised with a temporary rehearsal account.
+- The first drain detected an existing history failure and automatically restored access before stopping the old application. One project's history files remained in the legacy nested directory. After preserving database/queue snapshots, 27 missing files were restored without replacing existing files and 532 queued history updates were flushed. The final migrated service successfully reads that history.
+- The final backup contains MongoDB, Redis, 35,137 files, configuration and integrity hashes. A second copy on m701's local disk was verified against the manifest. The original PVCs and stopped legacy Deployment remain available; retain them and both backups for at least seven days. The port-18082 preview was preserved separately and did not supply production data. Private backup paths and rollback procedures are recorded in the GitOps repository's `production/overleaf/README.md`.
+- Rehearsal MCP checks passed identity, document edits, stale-version rejection, project scope, operation persistence, `Your agent` history attribution, Chinese/minted/EPS compilation and ICT25. Final ICT25 compilation produced a 32-page, 24,252,380-byte PDF, parsed successfully by `pdfinfo` and Ghostscript. Public HTTPS MCP initialization, identity, project reads and document reads passed after opening access; temporary grants were revoked.
+- Both public login pages show `OverLeaf@ZJUSCT`. Self-registration remains closed; GitHub OAuth is deferred. Envoy access logging redacts credential paths, and the MCP route suppresses/redacts tracing; actual Loki/Tempo probes verified this before cutover. The application remains a single replica with `Recreate`, and the sidebar keeps the existing local connector workflow.
+- Deployment fixes include explicit readable permissions for bundled modules when build sources use a private umask, and MongoDB startup waiting for headless DNS to resolve to its current Pod IP. The fixed image passed a cold start. Temporary restore, backup and prewarm Pods were removed after deployment.
+
 ## Full TeX and English preview (2026-11-13)
 
 The isolated m701 migration preview on `http://localhost:18082` now runs image `overleaf-email-migration:english-fulltex-20261113`, manifest `sha256:b6558de684d974cacdf166750edd84bc84f66ca391ed4c779c378b6a60d719aa`. Its base remains Overleaf CE 6.3.2, revision `370f4763da4bc910da8309c9a71c85ecbe39f6a7`. The old production service and domains remain unchanged.
@@ -108,7 +119,7 @@ Dark-theme verification: the original browser reproduction failed on the previou
 
 Sidebar verification: production webpack build and core typecheck/build passed; the full suite passed 14 tests, with the 4 targeted chat/ACP tests rechecked after review fixes. Chrome verified in-place modal scope, actual MCP edit/compile/restore through the ACP fixture, two permission requests, cancel followed by another turn, disconnect/reconnect and history persistence. A second check downloaded and ran the standalone artifact, attached a 2-character selection, delayed the POST response to ensure it did not overwrite a newer terminal SSE snapshot, and verified light theme/mobile modal width. No page errors. Personal and legacy MCP smoke passed; bridge/MCP test credentials were absent from container logs. Standards and Spec reviews have 0 remaining findings. Test connections were revoked.
 
-## Runtime and implementation decisions
+## Original lab runtime and implementation decisions
 
 - Base: Overleaf CE 6.3.2, upstream image digest `sha256:d17e196b04222837440b5efb2890864eb200a2e9341e434c0e6bd57a61011cbb`; revision `370f4763da4bc910da8309c9a71c85ecbe39f6a7`.
 - Derived image: `overleaf-agent-lab:6.3.2-dev`, local image ID `sha256:0fc74d0795f528b7e237cbcb70ce4e8ec2daa141326779d0736eef63df285725`. Dockerfile and source-hash checks define how to reproduce the extension on this base. The preceding History image was `sha256:bf520465740e079482e587f8437c02009a674c5a7d9523f6b6e46b6ae2f88cfa`; the first personal-URL image was `sha256:0a14f3de38af03bd996e5994705f49379b0163d9e94f88ec805b603dbd0819b5`.
@@ -128,8 +139,8 @@ Sidebar verification: production webpack build and core typecheck/build passed; 
 - Native online-member/cursor Agent label; persisted history and live updates retain the human user ID. History now distinguishes the Agent, while `overleaf_whoami` still reports `presenceLabel: false` for online presence. All personal links for one user share the same history Agent label.
 - Real configuration checks in students' chosen MCP applications. Official SDK and direct HTTP clients are verified; application-specific OAuth requirements or URL-import behavior are not yet tested.
 - ShareJS replaces surrogate code units upstream. The adapter rejects emoji/non-BMP writes before submission, while Chinese works. The native history-OT path is allowed but still needs its own real-project fixture before broad use.
-- HTTPS domain, production gateway redaction, K8s delivery, quotas and broader user rollout. Cloud-hosted clients cannot reach this loopback-only lab.
-- Optional file creation, PDF artifact retrieval, native review UI, IPA integration and old-instance migration remain separate milestones. Compile filenames and the editor link are returned; the new HTTP tools do not yet download PDFs.
+- Per-user quotas and capacity checks under broader concurrent use. The production HTTPS endpoint and gateway redaction are deployed; the original lab remains loopback-only.
+- Optional file creation, PDF artifact retrieval, native review UI and IPA integration remain separate milestones. Compile filenames and the editor link are returned; the new HTTP tools do not yet download PDFs.
 
 ## Image transfer history
 
