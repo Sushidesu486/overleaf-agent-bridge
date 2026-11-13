@@ -4,7 +4,7 @@ import AgentChat from "./agent-chat";
 const agentRail: RailElement = {
   key: "agent-access",
   icon: "integration_instructions",
-  title: "我的 Agent",
+  title: "My Agent",
   component: <AgentChat />,
   hide: () => getMeta("ol-anonymous"),
 };

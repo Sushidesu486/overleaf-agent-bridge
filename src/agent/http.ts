@@ -21,10 +21,11 @@ export function errorResponse(error: unknown) {
   return error instanceof AgentError
     ? { code: error.code, message: error.message }
     : error instanceof z.ZodError
-      ? { code: "INVALID_INPUT", message: "请求参数不正确" }
+      ? { code: "INVALID_INPUT", message: "Invalid request parameters" }
       : {
           code: "RESULT_UNKNOWN",
-          message: "请求未能完成；写入操作请重新读取文档确认结果",
+          message:
+            "The request could not be completed. For edits, read the document again to confirm the result.",
         };
 }
 export async function handleMcp(

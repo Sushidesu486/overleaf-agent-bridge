@@ -1,5 +1,21 @@
 # Development progress
 
+## Full TeX and English preview (2026-11-13)
+
+The isolated m701 migration preview on `http://localhost:18082` now runs image `overleaf-email-migration:english-fulltex-20261113`, manifest `sha256:b6558de684d974cacdf166750edd84bc84f66ca391ed4c779c378b6a60d719aa`. Its base remains Overleaf CE 6.3.2, revision `370f4763da4bc910da8309c9a71c85ecbe39f6a7`. The old production service and domains remain unchanged.
+
+- Reproduced the team's report failure as missing `mathtools.sty`, both directly and through the native MCP compilation path. Installed TeX Live 2026 `scheme-full` runtime packages, updated installed packages, regenerated formats/maps, and ran `tlmgr path add` for bundled executables including `latexminted`. Documentation/source packages are omitted; the separate TeX Docker stage caches this installation across UI rebuilds.
+- `scripts/check-report-template.sh` covers the exact supplied preamble with actual `minted` highlighting, mathematics, tables and listings. It passes under pdfLaTeX and XeLaTeX with restricted shell escape. The existing CJKutf8/pdfLaTeX and ctex/XeLaTeX checks also pass. A dedicated project compiled through the actual MCP/native Overleaf service with `status=success`, no first error or warnings, and both PDF and `.highlight.minted` artifacts. Temporary test access was revoked.
+- Custom Agent pages, sidebar, dialogs, connector output, backend errors and site messages now use English. The application/navbar name is `OverLeaf@ZJUSCT`; the navigation link is `My Agent`. Existing user-authored content is preserved.
+- Self-registration remains disabled with `SITE_SELF_REGISTRATION=false`. The native Sign Up link is hidden, `/register` returns 404, and `/signup/verify` returns 403. Existing email login and administrator invitations remain available; GitHub OAuth is deferred.
+- Core typecheck, native frontend build, formatting and 35 affected Agent/ACP/chat/UI/session tests pass. HTTP checks confirm the English login page, exact branding and closed registration. A final desktop screenshot was unavailable because the native browser windows were no longer accessible; the refreshed layout still needs user visual acceptance.
+
+### EPS conversion follow-up (2026-11-13)
+
+The migration preview now uses `overleaf-email-migration:english-fulltex-gs-20261113`, manifest `sha256:ae9e9d15ba0048a7dfdcfc0a9c7c87581d02694fd01f1d4bc33496b3824d7676`. The ICT25 Chinese project completed XeLaTeX's 32-page XDV output but failed in `xdvipdfmx` when including an EPS figure. A partial PDF remained, which caused the browser's PDF rendering error. The TeX log's page-header, duplicate-label and substituted-font warnings did not identify this conversion failure.
+
+The installed TeX Live packages included `rungs`, but the OS image had no `gs` executable. Both the original EPS figure and a generated minimal EPS reproduced the fatal image-inclusion error. The image now installs Ubuntu's Ghostscript package (`10.02.1~dfsg1-0ubuntu7.10`) and runs `scripts/check-eps.sh` during its build. That regression executes XeLaTeX, `xdvipdfmx` and `pdfinfo`; it failed on the previous image and passed after adding Ghostscript. The original EPS also passes under `www-data`. Native browser **Recompile from scratch** finished in 32.72 seconds, producing a 24,252,378-byte, 32-page PDF; `qpdf --check` found no syntax or stream encoding errors. The browser renders the Chinese cover and the previously failing EPS chart on page 18. Document source and compile security settings are unchanged; the template's nonfatal warnings remain.
+
 Personal-URL milestone verified 2026-11-05T19:58:35+08:00 on m701. Sources: Compose health, official MCP SDK clients, the real Overleaf smoke script and Chrome UI/editor interaction. Old production Overleaf and its databases remain unchanged.
 
 History attribution verified 2026-11-05T22:55:53+08:00 on m701. Sources: native history API/diff responses, the patched native compressor, and Chrome on the existing `test` project. Previously recorded MCP edits now show `Your agent`, while the manual creation still shows `You`; the existing document content was not changed for this check.

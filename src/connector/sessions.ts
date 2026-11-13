@@ -28,7 +28,9 @@ export class NativeSessionStore {
       text = await readFile(this.path(sessionId), "utf8");
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
-      throw new Error("无法读取本机会话索引，请检查连接配置目录的访问权限");
+      throw new Error(
+        "Unable to read the local session index. Check permissions for the connection configuration directory.",
+      );
     }
     try {
       return recordSchema.parse(JSON.parse(text));
@@ -50,7 +52,9 @@ export class NativeSessionStore {
       });
       await rename(temporary, destination);
     } catch {
-      throw new Error("无法保存本机会话索引，请检查连接配置目录的访问权限");
+      throw new Error(
+        "Unable to save the local session index. Check permissions for the connection configuration directory.",
+      );
     } finally {
       await rm(temporary, { force: true }).catch(() => {});
     }

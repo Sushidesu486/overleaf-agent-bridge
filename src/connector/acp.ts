@@ -111,7 +111,11 @@ export class AcpRuntime {
       this.stop();
       this.options.onExit?.();
       for (const p of this.requests.values())
-        p.reject(new Error("Agent 进程退出或协议连接中断"));
+        p.reject(
+          new Error(
+            "The agent process exited or the protocol connection was interrupted",
+          ),
+        );
       this.requests.clear();
     };
     this.process.on("error", fail);
@@ -128,7 +132,7 @@ export class AcpRuntime {
     if (!this.stopped) this.process.stdin.write(JSON.stringify(value) + "\n");
   }
   private request(method: string, params: unknown): Promise<any> {
-    if (this.stopped) return Promise.reject(new Error("Agent 已停止"));
+    if (this.stopped) return Promise.reject(new Error("The agent has stopped"));
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
       this.requests.set(id, { resolve, reject });
@@ -146,7 +150,7 @@ export class AcpRuntime {
       this.ready,
       new Promise<never>((_, reject) => {
         const timer = setTimeout(
-          () => reject(new Error("Agent 初始化超时")),
+          () => reject(new Error("Agent initialization timed out")),
           120_000,
         );
         timer.unref();
@@ -154,7 +158,7 @@ export class AcpRuntime {
     ]);
     if (!result.agentCapabilities?.mcpCapabilities?.http)
       throw new Error(
-        "这个 ACP Agent 没有声明 HTTP MCP 支持，请选择支持该能力的运行时",
+        "This ACP agent does not support HTTP MCP. Choose a runtime that supports it.",
       );
     return {
       name: String(result.agentInfo?.name || this.options.command).slice(0, 80),
@@ -190,10 +194,12 @@ export class AcpRuntime {
       if (message.error)
         pending.reject(
           new AcpRequestError(
-            this.clean(String(message.error.message || "Agent 请求失败")) +
+            this.clean(
+              String(message.error.message || "The agent request failed"),
+            ) +
               (/auth|login|sign.in/i.test(String(message.error.message)) &&
               this.options.loginHint
-                ? `。${this.options.loginHint}`
+                ? `. ${this.options.loginHint}`
                 : ""),
             message.error.code,
           ),
@@ -221,7 +227,8 @@ export class AcpRuntime {
       const permission = {
         id: permissionId,
         title: String(
-          message.params.toolCall?.title || "Agent 请求执行操作",
+          message.params.toolCall?.title ||
+            "The agent requested permission to perform an action",
         ).slice(0, 1000),
         options,
       };
@@ -268,7 +275,7 @@ export class AcpRuntime {
           c.type === "content" && c.content?.type === "text"
             ? c.content.text
             : c.type === "diff"
-              ? `修改 ${c.path}\n${String(c.newText || "").slice(0, 1500)}`
+              ? `Edit ${c.path}\n${String(c.newText || "").slice(0, 1500)}`
               : "",
         )
         .filter(Boolean)
@@ -278,7 +285,7 @@ export class AcpRuntime {
         type: "message",
         id: `tool:${toolId}`,
         role: "tool",
-        title: String(tool.title || "调用工具").slice(0, 500),
+        title: String(tool.title || "Call tool").slice(0, 500),
         state: String(tool.status || "pending"),
         text: details,
       });
@@ -318,7 +325,7 @@ export class AcpRuntime {
     }
     const session = await pending;
     if (session.projectId !== command.projectId)
-      throw new Error("会话所属项目不一致");
+      throw new Error("The session belongs to a different project");
     return session;
   }
   private async createSession(
@@ -409,7 +416,7 @@ export class AcpRuntime {
           !result.sessionId ||
           result.sessionId.length > 1024
         )
-          throw new Error("Agent 没有返回有效会话 ID");
+          throw new Error("The agent did not return a valid session ID");
         nativeId = result.sessionId;
       }
       const record: NativeSessionRecord = {
@@ -451,7 +458,9 @@ export class AcpRuntime {
       await this.options.onSession?.(
         command.sessionId,
         this.clean(
-          error instanceof Error ? error.message : "Agent 创建会话失败",
+          error instanceof Error
+            ? error.message
+            : "The agent could not create a session",
         ).slice(0, 2000),
         command.bindingVersion ?? 0,
       );
@@ -465,7 +474,9 @@ export class AcpRuntime {
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => {
           reject(
-            new Error("Agent 会话准备超时，请检查本机登录和模型配置后重连"),
+            new Error(
+              "Agent session setup timed out. Check your local sign-in and model configuration, then reconnect.",
+            ),
           );
           // A late setup result must not leave an untracked native session active.
           this.stop();
@@ -587,7 +598,7 @@ export class AcpRuntime {
           type: "done",
           reason: run.cancelled ? "cancelled" : "error",
           message: this.clean(
-            error instanceof Error ? error.message : "Agent 运行失败",
+            error instanceof Error ? error.message : "The agent run failed",
           ).slice(0, 2000),
         })
         .catch(() => {});
@@ -602,7 +613,7 @@ export class AcpRuntime {
     this.terminated = true;
     this.stopped = true;
     for (const p of this.requests.values())
-      p.reject(new Error("Agent 连接已关闭"));
+      p.reject(new Error("The agent connection has closed"));
     this.requests.clear();
     for (const timer of this.timers.values()) clearTimeout(timer);
     this.timers.clear();

@@ -13,16 +13,16 @@ export function resolveRuntime(
   saved?: RuntimeConfig,
 ): RuntimeConfig {
   if (input.runtime && (input.agent || input.args))
-    throw new Error("--runtime 与 --agent/--agent-arg 请择一使用");
+    throw new Error("Use either --runtime or --agent/--agent-arg, not both");
   if (input.runtime && !Object.hasOwn(runtimes, input.runtime))
-    throw new Error("--runtime 可选 codex、claude、opencode");
+    throw new Error("--runtime must be codex, claude or opencode");
   if (input.agent)
     return {
       agent: input.agent,
       args: input.args || (input.agent === "opencode" ? ["acp"] : []),
     };
   if (input.args) {
-    if (!saved) throw new Error("--agent-arg 需要同时指定 --agent");
+    if (!saved) throw new Error("--agent-arg requires --agent");
     return { agent: saved.agent, args: input.args };
   }
   if (!input.runtime && saved) {
@@ -45,5 +45,7 @@ function validateNodeVersion(runtime?: RuntimeId) {
     (runtime === "codex" || runtime === "claude") &&
     Number(process.versions.node.split(".")[0]) < 22
   )
-    throw new Error("Codex / Claude Code 适配器需要 Node.js 22 或更新版本");
+    throw new Error(
+      "The Codex and Claude Code adapters require Node.js 22 or later",
+    );
 }

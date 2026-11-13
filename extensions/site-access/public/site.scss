@@ -1,0 +1,28 @@
+.site-name-wordmark {
+  display: inline-block;
+  padding: 14px 0;
+  font-size: 27px;
+  font-weight: 700;
+  letter-spacing: 0.035em;
+  color: var(--content-primary);
+}
+
+.ide-redesign-toolbar-home-button.site-toolbar-home {
+  width: auto;
+  min-width: 88px;
+
+  .ide-redesign-toolbar-home-link {
+    padding: 0 8px;
+    border-radius: var(--border-radius-base);
+
+    .site-toolbar-name {
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: 0.025em;
+    }
+
+    &:hover .toolbar-ol-home-button {
+      display: none;
+    }
+  }
+}

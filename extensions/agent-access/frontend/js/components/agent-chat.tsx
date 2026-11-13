@@ -101,8 +101,10 @@ export default function AgentChat() {
   const report = (e: unknown) =>
     setError(
       getUserFacingMessage(
-        e instanceof Error ? e : new Error("操作失败，请重试"),
-      ) || "操作失败，请重试",
+        e instanceof Error
+          ? e
+          : new Error("The action failed. Please try again."),
+      ) || "The action failed. Please try again.",
     );
   const refresh = useCallback(async () => {
     const data = await getJSON<PublicConnection[]>(
@@ -236,17 +238,19 @@ export default function AgentChat() {
     if (!editor?.currentDocumentId) return;
     const value: Attachment = {
       docId: editor.currentDocumentId,
-      name: editor.openDocName || "当前文件",
+      name: editor.openDocName || "Current file",
     };
     if (selected) {
       const range = selection?.editorSelection?.main,
         snapshot = editor.currentDocument?.getSnapshot();
       if (!range || range.empty || typeof snapshot !== "string") {
-        setError("请先在源代码编辑器选中一段文本。");
+        setError("Select some text in the source editor first.");
         return;
       }
       if (range.to - range.from > 20_000) {
-        setError("选区过长，请缩小到 20,000 字符以内。");
+        setError(
+          "The selection is too long. Select fewer than 20,000 characters.",
+        );
         return;
       }
       value.text = snapshot.slice(range.from, range.to);
@@ -330,11 +334,11 @@ export default function AgentChat() {
   return (
     <div className="agent-chat-panel">
       <RailPanelHeader
-        title="我的 Agent"
+        title="My Agent"
         actions={
           <OLIconButton
             icon="settings"
-            accessibilityLabel="连接设置"
+            accessibilityLabel="Connection settings"
             className="rail-panel-header-button-subdued"
             size="sm"
             onClick={() => setModal(true)}
@@ -345,7 +349,8 @@ export default function AgentChat() {
         <div className="agent-chat-heading">
           <div className="agent-chat-title">
             <strong title={session?.title}>
-              {session?.title || (sessionId ? "正在读取对话…" : "新对话")}
+              {session?.title ||
+                (sessionId ? "Loading conversation…" : "New conversation")}
             </strong>
             <span className="small" title={name}>
               {name}
@@ -354,7 +359,7 @@ export default function AgentChat() {
           <div className="d-flex gap-1">
             <OLIconButton
               icon="add"
-              accessibilityLabel="新对话"
+              accessibilityLabel="New conversation"
               size="sm"
               disabled={busy || !loaded}
               onClick={() => {
@@ -364,7 +369,7 @@ export default function AgentChat() {
             />
             <OLIconButton
               icon="history"
-              accessibilityLabel="对话历史"
+              accessibilityLabel="Conversation history"
               size="sm"
               disabled={busy || !loaded}
               onClick={() => setHistory(true)}
@@ -372,7 +377,7 @@ export default function AgentChat() {
             {session && (
               <OLIconButton
                 icon="more_vert"
-                accessibilityLabel="管理当前对话"
+                accessibilityLabel="Manage conversation"
                 size="sm"
                 disabled={busy}
                 onClick={() => setSettings(true)}
@@ -391,13 +396,13 @@ export default function AgentChat() {
             aria-hidden="true"
           />
           {active
-            ? `${active.name} · ${active.runtime} · ${active.online ? "在线" : "离线"}`
-            : "连接我的 Agent"}
+            ? `${active.name} · ${active.runtime} · ${active.online ? "Online" : "Offline"}`
+            : "Connect my agent"}
         </OLButton>
       </div>
       <div
         className="agent-chat-messages p-3"
-        aria-label="Agent 对话记录"
+        aria-label="Agent conversation"
         ref={messages}
         onScroll={(event) => {
           const element = event.currentTarget;
@@ -410,8 +415,8 @@ export default function AgentChat() {
       >
         {!sessionId && (
           <p className="small">
-            连接自己的 Agent 后，在这里讨论当前项目、修改 LaTeX
-            或请求编译。发送第一条消息后自动保存对话。
+            Connect your agent to discuss this project, edit LaTeX or request a
+            compile. Conversations are saved after the first message.
           </p>
         )}
         {session?.messages.map((message) => (
@@ -442,30 +447,32 @@ export default function AgentChat() {
         {running && (
           <p role="status" className="small">
             {session?.status === "cancelling"
-              ? "正在停止…"
+              ? "Stopping…"
               : session?.status === "waiting_permission"
-                ? "等待你的选择…"
-                : "Agent 正在处理…"}
+                ? "Waiting for your choice…"
+                : "Agent is working…"}
           </p>
         )}
       </div>
       {awayFromLatest && (
         <div className="agent-chat-latest">
           <OLButton size="sm" variant="secondary" onClick={showLatest}>
-            {session?.permission ? "需要你的选择 · 回到最新" : "回到最新"}
+            {session?.permission
+              ? "Action required · Jump to latest"
+              : "Jump to latest"}
           </OLButton>
         </div>
       )}
       <div className="agent-chat-composer p-3 border-top">
         {session?.archivedAt && (
           <div className="small mb-2" role="status">
-            此对话已归档，聊天记录仍保留。
+            This conversation is archived. Its history is preserved.
             <OLButton
               size="sm"
               variant="secondary"
               onClick={() => setSettings(true)}
             >
-              恢复对话
+              Restore conversation
             </OLButton>
           </div>
         )}
@@ -474,24 +481,25 @@ export default function AgentChat() {
           !active?.online &&
           projectConnections.some((c) => c.online && !c.revoked) && (
             <div className="small mb-2" role="status">
-              当前对话的 Agent 离线，另有 Agent 可用。
+              The agent for this conversation is offline. Another agent is
+              available.
               <OLButton
                 size="sm"
                 variant="secondary"
                 disabled={running || busy}
                 onClick={() => setSettings(true)}
               >
-                选择 Agent 继续此对话
+                Choose an agent to continue
               </OLButton>
             </div>
           )}
         {!active?.online && otherConnections.length > 0 && (
           <p className="small" role="status">
-            本地 Agent 已连接到其他项目：
+            Your local agent is connected to other projects:
             {otherConnections
               .map((c) => c.projectNames?.join("、") || c.name)
-              .join("；")}
-            。 要在当前项目使用，请在连接设置中为当前项目配对。
+              .join("; ")}
+            . Pair this project in connection settings to use it here.
           </p>
         )}
         {error && <Notification type="error" content={error} />}
@@ -503,24 +511,27 @@ export default function AgentChat() {
           session.recovery &&
           session.recovery.mode !== "new" && (
             <p className="small agent-recovery-status" role="status">
-              {recoveryMessage(session.recovery)}。
-              {session.status === "interrupted" && "中断的任务需由你重新发起。"}
+              {recoveryMessage(session.recovery)}.
+              {session.status === "interrupted" &&
+                "Resubmit interrupted tasks when you are ready."}
             </p>
           )}
         {!streaming && (
           <p className="small" role="status">
-            正在恢复消息连接…
+            Reconnecting to messages…
           </p>
         )}
         {attachment && (
           <div className="d-flex align-items-center gap-2 mb-2 small">
             <span className="text-break">
               {attachment.name}
-              {attachment.text ? ` · 选区 ${attachment.text.length} 字符` : ""}
+              {attachment.text
+                ? ` · Selection: ${attachment.text.length} characters`
+                : ""}
             </span>
             <OLIconButton
               icon="close"
-              accessibilityLabel="移除附件"
+              accessibilityLabel="Remove attachment"
               onClick={() => setAttachment(undefined)}
             />
           </div>
@@ -532,7 +543,7 @@ export default function AgentChat() {
             disabled={!editor?.currentDocumentId}
             onClick={() => attach(false)}
           >
-            附加文件
+            Attach file
           </OLButton>
           <OLButton
             size="sm"
@@ -540,21 +551,21 @@ export default function AgentChat() {
             disabled={!editor?.currentDocumentId}
             onClick={() => attach(true)}
           >
-            附加选区
+            Attach selection
           </OLButton>
         </div>
         <OLFormControl
           as="textarea"
-          aria-label="发给 Agent 的消息"
+          aria-label="Message to agent"
           rows={3}
           disabled={Boolean(session?.archivedAt)}
           maxLength={20_000}
           placeholder={
             session?.archivedAt
-              ? "恢复对话后可继续发送"
+              ? "Restore this conversation to send messages"
               : active?.online
-                ? "描述你希望完成的修改…"
-                : "可先写下想法，连接 Agent 后发送"
+                ? "Describe the changes you want…"
+                : "Draft a message, then connect an agent to send it"
           }
           value={text}
           onChange={(e) => setText(e.target.value)}
@@ -580,18 +591,18 @@ export default function AgentChat() {
         <div className="d-flex justify-content-between align-items-center mt-2">
           <span className="small">
             {!loaded
-              ? "正在读取对话…"
+              ? "Loading conversation…"
               : session?.archivedAt
-                ? "已归档"
+                ? "Archived"
                 : !active?.online
                   ? active
-                    ? "所选 Agent 离线"
-                    : "尚未连接 Agent"
+                    ? "Selected agent offline"
+                    : "No agent connected"
                   : session?.agentState === "preparing"
-                    ? "Agent 已连接，正在建立会话…"
+                    ? "Agent connected. Preparing session…"
                     : session?.agentState === "error"
-                      ? "Agent 已连接，会话需要重试"
-                      : "Agent 已连接"}
+                      ? "Agent connected. Retry session setup."
+                      : "Agent connected"}
           </span>
           {running ? (
             <OLButton
@@ -599,11 +610,11 @@ export default function AgentChat() {
               disabled={busy || session?.status === "cancelling"}
               onClick={cancel}
             >
-              停止
+              Stop
             </OLButton>
           ) : (
             <OLButton variant="primary" disabled={!canSend} onClick={send}>
-              发送
+              Send
             </OLButton>
           )}
         </div>
@@ -637,7 +648,7 @@ export default function AgentChat() {
       {modal && (
         <AgentConnectionModal
           projectId={projectId}
-          projectName={name || "当前项目"}
+          projectName={name || "Current project"}
           connections={connections}
           onConnected={useConnection}
           onHide={() => setModal(false)}

@@ -26,7 +26,7 @@ export const compileLogInput = z
 export const action = z.enum(["read", "edit", "compile"]);
 export const grantInput = z
   .object({
-    name: z.string().trim().min(1).max(60).default("我的 Agent"),
+    name: z.string().trim().min(1).max(60).default("My Agent"),
     projects: z.array(objectId).max(200).nullable().default(null),
     actions: z.array(action).min(1).default(["read", "edit", "compile"]),
   })
@@ -123,15 +123,15 @@ export class AgentService {
   }
   async issue(userId: string, input: unknown) {
     if (!(await this.backend.user(userId)))
-      throw new AgentError("ACCESS_DENIED", "账号不可用", 403);
+      throw new AgentError("ACCESS_DENIED", "This account is unavailable", 403);
     const data = grantInput.parse(input);
     if (!data.actions.includes("read")) data.actions.unshift("read");
     const existing = await this.store.list(userId);
     if (existing.filter((g) => !g.revokedAt).length >= 20)
-      throw new AgentError("LINK_LIMIT", "最多保留 20 条有效链接");
+      throw new AgentError("LINK_LIMIT", "You can keep up to 20 active links");
     if (data.projects !== null) {
       if (!data.projects.length)
-        throw new AgentError("EMPTY_PROJECTS", "请至少选择一个项目");
+        throw new AgentError("EMPTY_PROJECTS", "Select at least one project");
       for (const id of data.projects)
         await this.checkPrivilege(userId, id, "read");
     }
@@ -152,19 +152,23 @@ export class AgentService {
     objectId.parse(id);
     const secret = randomBytes(32).toString("base64url");
     if (!(await this.store.rotate(id, userId, digest(secret))))
-      throw new AgentError("NOT_FOUND", "有效链接不存在", 404);
+      throw new AgentError("NOT_FOUND", "Active link not found", 404);
     return { url: this.url(id, secret) };
   }
   async revoke(userId: string, id: string) {
     objectId.parse(id);
     if (!(await this.store.revoke(id, userId)))
-      throw new AgentError("NOT_FOUND", "链接不存在", 404);
+      throw new AgentError("NOT_FOUND", "Link not found", 404);
     return { revoked: true };
   }
   async authenticate(credential: string) {
     const match = /^([a-f0-9]{24})\.([A-Za-z0-9_-]{43})$/.exec(credential);
     if (!match)
-      throw new AgentError("INVALID_LINK", "MCP 链接无效或已停用", 401);
+      throw new AgentError(
+        "INVALID_LINK",
+        "This MCP link is invalid or has been disabled",
+        401,
+      );
     const grant = await this.store.get(match[1]);
     if (
       !grant ||
@@ -174,15 +178,21 @@ export class AgentService {
         Buffer.from(digest(match[2]), "hex"),
       )
     )
-      throw new AgentError("INVALID_LINK", "MCP 链接无效或已停用", 401);
+      throw new AgentError(
+        "INVALID_LINK",
+        "This MCP link is invalid or has been disabled",
+        401,
+      );
     const user = await this.backend.user(grant.userId);
-    if (!user) throw new AgentError("ACCESS_DENIED", "账号不可用", 403);
+    if (!user)
+      throw new AgentError("ACCESS_DENIED", "This account is unavailable", 403);
     await this.store.touch(grant.id, grant.digest);
     return { grant, user };
   }
   async state(userId: string) {
     const user = await this.backend.user(userId);
-    if (!user) throw new AgentError("ACCESS_DENIED", "账号不可用", 403);
+    if (!user)
+      throw new AgentError("ACCESS_DENIED", "This account is unavailable", 403);
     return {
       user,
       grants: (await this.store.list(userId)).map(publicGrant),
@@ -199,14 +209,18 @@ export class AgentService {
       !level ||
       (required === "edit" && level !== "owner" && level !== "readAndWrite")
     )
-      throw new AgentError("ACCESS_DENIED", "当前账号没有对应项目权限", 403);
+      throw new AgentError(
+        "ACCESS_DENIED",
+        "Your account does not have access to this project",
+        403,
+      );
   }
   async execute(credential: string, name: string, input: unknown) {
     const { grant, user } = await this.authenticate(credential);
     if (name === "overleaf_whoami")
       return {
         user,
-        connectionLabel: `${user.name} 的 Agent`,
+        connectionLabel: `${user.name}'s agent`,
         grant: publicGrant(grant),
         capabilities: { editing: true, presenceLabel: false },
       };
@@ -227,7 +241,11 @@ export class AgentService {
       !grant.actions.includes(required) ||
       (grant.projects !== null && !grant.projects.includes(projectId))
     )
-      throw new AgentError("OUTSIDE_GRANT", "操作超出此链接的授权范围", 403);
+      throw new AgentError(
+        "OUTSIDE_GRANT",
+        "This action is outside the scope of this link",
+        403,
+      );
     await this.checkPrivilege(user.id, projectId, required);
     if (name === "overleaf_get_project_tree")
       return this.backend.tree(projectId);
@@ -252,18 +270,25 @@ export class AgentService {
     if (args.expectedVersion !== doc.version)
       throw new AgentError(
         "VERSION_CONFLICT",
-        "文档已变化，请重新读取后生成修改",
+        "The document has changed. Read it again before preparing an edit.",
         409,
       );
     const index = doc.content.indexOf(args.oldText);
     if (index < 0 || doc.content.indexOf(args.oldText, index + 1) !== -1)
-      throw new AgentError("TEXT_CONFLICT", "旧文本需要在文档中唯一匹配", 409);
+      throw new AgentError(
+        "TEXT_CONFLICT",
+        "The original text must match exactly one location in the document",
+        409,
+      );
     const content =
       doc.content.slice(0, index) +
       args.newText +
       doc.content.slice(index + args.oldText.length);
     if (Buffer.byteLength(content) > 2_000_000)
-      throw new AgentError("DOCUMENT_TOO_LARGE", "文档超出 2 MB 限制");
+      throw new AgentError(
+        "DOCUMENT_TOO_LARGE",
+        "The document exceeds the 2 MB limit",
+      );
     if (args.dryRun)
       return {
         dryRun: true,
@@ -286,7 +311,7 @@ export class AgentService {
     )
       throw new AgentError(
         "OPERATION_ALREADY_SUBMITTED",
-        "此操作已提交，请重新读取文档确认结果",
+        "This operation has already been submitted. Read the document again to confirm the result.",
         409,
       );
     try {

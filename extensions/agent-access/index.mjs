@@ -124,7 +124,7 @@ async function tree(projectId) {
     compiler: 1,
     imageName: 1,
   });
-  if (!project) throw new AgentError("NOT_FOUND", "项目不存在", 404);
+  if (!project) throw new AgentError("NOT_FOUND", "Project not found", 404);
   return {
     id: projectId,
     name: project.name,
@@ -140,7 +140,11 @@ async function checkDoc(projectId, docId) {
       (e) => e.id === docId && e.type === "document",
     )
   )
-    throw new AgentError("NOT_FOUND", "文档不属于该项目", 404);
+    throw new AgentError(
+      "NOT_FOUND",
+      "This document does not belong to the project",
+      404,
+    );
 }
 let compileBuildsPromise;
 function compileBuilds() {
@@ -215,11 +219,15 @@ const backend = {
       { signal: AbortSignal.timeout(30_000) },
     );
     if (!response.ok)
-      throw new AgentError("UPSTREAM_ERROR", "读取文档失败", 502);
+      throw new AgentError(
+        "UPSTREAM_ERROR",
+        "Unable to read the document",
+        502,
+      );
     if (response.headers.get("x-overleaf-agent-cas") !== "1")
       throw new AgentError(
         "UNSUPPORTED_SERVER",
-        "文档服务缺少版本检查扩展",
+        "The document service is missing the version-check extension",
         503,
       );
     const doc = await response.json();
@@ -228,10 +236,16 @@ const backend = {
       !Number.isInteger(doc.version) ||
       !["sharejs-text-ot", "history-ot"].includes(doc.type)
     )
-      throw new AgentError("UNSUPPORTED_DOCUMENT", "文档格式不受支持");
+      throw new AgentError(
+        "UNSUPPORTED_DOCUMENT",
+        "This document format is not supported",
+      );
     const content = doc.lines.join("\n");
     if (Buffer.byteLength(content) > 2_000_000)
-      throw new AgentError("DOCUMENT_TOO_LARGE", "文档超出 2 MB 限制");
+      throw new AgentError(
+        "DOCUMENT_TOO_LARGE",
+        "The document exceeds the 2 MB limit",
+      );
     return { content, version: doc.version, otType: doc.type };
   },
   async edit(projectId, docId, userId, expectedVersion, content, authorize) {
@@ -241,10 +255,13 @@ const backend = {
     if (current.otType === "sharejs-text-ot" && /[\uD800-\uDFFF]/.test(content))
       throw new AgentError(
         "UNSUPPORTED_TEXT",
-        "该项目使用 ShareJS，暂不支持写入 emoji 等非 BMP 字符；中文可正常编辑",
+        "This project uses ShareJS, which cannot accept emoji or other non-BMP characters. Chinese text is supported.",
       );
     if (/[\uD800-\uDFFF]/u.test(content))
-      throw new AgentError("INVALID_TEXT", "文本包含不完整的 Unicode 字符");
+      throw new AgentError(
+        "INVALID_TEXT",
+        "The text contains an incomplete Unicode character",
+      );
     await authorize();
     const response = await fetch(
       `${Settings.apis.documentupdater.url}/project/${projectId}/doc/${docId}`,
@@ -263,13 +280,13 @@ const backend = {
     if (response.status === 409)
       throw new AgentError(
         "VERSION_CONFLICT",
-        "文档已变化，请重新读取后生成修改",
+        "The document has changed. Read it again before preparing an edit.",
         409,
       );
     if (!response.ok)
       throw new AgentError(
         "RESULT_UNKNOWN",
-        "写入未确认，请重新读取文档后检查",
+        "The write was not confirmed. Read the document again to check the result.",
         502,
       );
   },
@@ -354,7 +371,7 @@ const backend = {
           message:
             error instanceof AgentError
               ? error.message
-              : "编译已完成，但暂时无法获取日志；可重新编译后再试",
+              : "Compilation finished, but its log is unavailable. Compile again to obtain a new log.",
           files: availableLogs,
         };
       }
@@ -657,7 +674,7 @@ export default {
           res.render(
             fileURLToPath(new URL("./app/views/index.pug", import.meta.url)),
             {
-              title: "我的 Agent",
+              title: "My Agent",
               userSettings,
               initialTheme: UserSettingsHelper.getInitialTheme(
                 userSettings.overallTheme,

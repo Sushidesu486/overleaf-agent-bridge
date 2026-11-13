@@ -300,7 +300,10 @@ test("damaged index rebuilds; unreadable index fails without creating an untrack
     const badRoot = join(f.cwd, "not-a-directory");
     await writeFile(badRoot, "file");
     const third = f.start({ sessionStore: new NativeSessionStore(badRoot) });
-    await assert.rejects(third.command(prepare), /无法读取本机会话索引/);
+    await assert.rejects(
+      third.command(prepare),
+      /Unable to read the local session index/,
+    );
     assert.equal(
       (await f.trace()).filter((x) => x.method === "session/new").length,
       2,

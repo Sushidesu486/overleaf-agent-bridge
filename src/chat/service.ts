@@ -161,7 +161,7 @@ export class ChatService {
   async createPairing(userId: string, input: unknown) {
     const parsed = grantInput.parse(input);
     if (!(await this.agent.backend.user(userId)))
-      throw new AgentError("ACCESS_DENIED", "账号不可用", 403);
+      throw new AgentError("ACCESS_DENIED", "This account is unavailable", 403);
     if (parsed.projects)
       for (const projectId of parsed.projects)
         await this.projectAccess(userId, projectId);
@@ -169,7 +169,10 @@ export class ChatService {
       (await this.store.connections(userId)).filter((c) => !c.revoked).length >=
       20
     )
-      throw new AgentError("CONNECTION_LIMIT", "请先停用不再使用的连接");
+      throw new AgentError(
+        "CONNECTION_LIMIT",
+        "Disable unused connections before adding another",
+      );
     const value = secret();
     const pairing: Pairing = {
       id: id(),
@@ -195,7 +198,11 @@ export class ChatService {
       .parse(input);
     const parts = tokenParts(data.code);
     if (!parts)
-      throw new AgentError("INVALID_PAIRING", "配对码无效或已过期", 401);
+      throw new AgentError(
+        "INVALID_PAIRING",
+        "The pairing code is invalid or has expired",
+        401,
+      );
     const pairing = await this.store.consumePairing(
       parts[1],
       digest(parts[2]),
@@ -204,7 +211,7 @@ export class ChatService {
     if (!pairing)
       throw new AgentError(
         "INVALID_PAIRING",
-        "配对码无效、已使用或已过期",
+        "The pairing code is invalid, has already been used or has expired",
         401,
       );
     const issued = await this.agent.issue(pairing.userId, pairing.input);
@@ -248,7 +255,11 @@ export class ChatService {
         Buffer.from(digest(parts[2]), "hex"),
       )
     )
-      throw new AgentError("INVALID_CONNECTION", "连接已失效，请重新配对", 401);
+      throw new AgentError(
+        "INVALID_CONNECTION",
+        "The connection is no longer valid. Please pair again.",
+        401,
+      );
     const grant = await this.connectionGrant(connection);
     return { connection, grant };
   }
@@ -260,7 +271,11 @@ export class ChatService {
       grant.digest !== connection.grantDigest ||
       !(await this.agent.backend.user(connection.userId))
     )
-      throw new AgentError("INVALID_CONNECTION", "连接授权已停用或重置", 401);
+      throw new AgentError(
+        "INVALID_CONNECTION",
+        "The connection authorization has been disabled or reset",
+        401,
+      );
     return grant;
   }
   private async projectAccess(userId: string, projectId: string) {
@@ -269,7 +284,11 @@ export class ChatService {
       !(await this.agent.backend.user(userId)) ||
       !(await this.agent.backend.privilege(userId, projectId))
     )
-      throw new AgentError("ACCESS_DENIED", "你已失去此项目的访问权限", 403);
+      throw new AgentError(
+        "ACCESS_DENIED",
+        "You no longer have access to this project",
+        403,
+      );
   }
   private async ownedConnection(
     userId: string,
@@ -279,10 +298,14 @@ export class ChatService {
     objectId.parse(connectionId);
     const connection = await this.store.get("connections", connectionId);
     if (!connection || connection.userId !== userId || connection.revoked)
-      throw new AgentError("NOT_FOUND", "连接不存在", 404);
+      throw new AgentError("NOT_FOUND", "Connection not found", 404);
     const grant = await this.connectionGrant(connection);
     if (projectId && grant.projects && !grant.projects.includes(projectId))
-      throw new AgentError("ACCESS_DENIED", "该连接未授权当前项目", 403);
+      throw new AgentError(
+        "ACCESS_DENIED",
+        "This connection is not authorized for the current project",
+        403,
+      );
     return connection;
   }
   async connections(
@@ -333,7 +356,7 @@ export class ChatService {
   async revoke(userId: string, connectionId: string) {
     const c = await this.store.get("connections", objectId.parse(connectionId));
     if (!c || c.userId !== userId)
-      throw new AgentError("NOT_FOUND", "连接不存在", 404);
+      throw new AgentError("NOT_FOUND", "Connection not found", 404);
     await this.store.revokeConnection(c.id);
     await this.agent.revoke(userId, c.grantId);
     const live = this.live.get(c.id);
@@ -359,7 +382,7 @@ export class ChatService {
       if (this.live.has(connection.id))
         throw new AgentError(
           "ALREADY_CONNECTED",
-          "该连接器已在另一进程中运行",
+          "This connector is already running in another process",
           409,
         );
       // A server or connector restart leaves durable turns visibly interrupted, never queued for replay.
@@ -452,7 +475,7 @@ export class ChatService {
         (session.bindingVersion ?? 0) !== data.bindingVersion ||
         !this.live.has(connection.id)
       )
-        throw new AgentError("NOT_FOUND", "连接会话不存在", 404);
+        throw new AgentError("NOT_FOUND", "Connection session not found", 404);
       session.agentState = data.error ? "error" : "ready";
       session.agentError = data.error;
       session.recovery = data.error ? undefined : data.recovery;
@@ -472,7 +495,7 @@ export class ChatService {
       })
       .refine(
         (q) => Boolean(q.before) === Boolean(q.beforeId),
-        "分页参数不完整",
+        "Incomplete pagination parameters",
       )
       .parse(input);
     return (
@@ -503,12 +526,24 @@ export class ChatService {
     return this.lock(sessionId, async () => {
       const session = await this.session(userId, sessionId, false);
       if (session.revision !== data.revision)
-        throw new AgentError("CONFLICT", "对话已更新，请重试", 409);
+        throw new AgentError(
+          "CONFLICT",
+          "The conversation has changed. Please try again.",
+          409,
+        );
       if (session.runId)
-        throw new AgentError("BUSY", "请先停止当前任务，再管理对话", 409);
+        throw new AgentError(
+          "BUSY",
+          "Stop the current task before managing this conversation",
+          409,
+        );
       if (data.connectionId && data.connectionId !== session.connectionId) {
         if (session.archivedAt)
-          throw new AgentError("ARCHIVED", "请先恢复已归档的对话", 409);
+          throw new AgentError(
+            "ARCHIVED",
+            "Restore the archived conversation first",
+            409,
+          );
         const connection = await this.ownedConnection(
           userId,
           data.connectionId,
@@ -516,11 +551,15 @@ export class ChatService {
         );
         const live = this.live.get(connection.id);
         if (!live)
-          throw new AgentError("OFFLINE", "请先启动要使用的 Agent", 409);
+          throw new AgentError(
+            "OFFLINE",
+            "Start the agent you want to use first",
+            409,
+          );
         if (!live.rebind)
           throw new AgentError(
             "UPDATE_CONNECTOR",
-            "请下载新版连接器后再切换当前对话",
+            "Download the latest connector before switching this conversation",
             409,
           );
         const previous = await this.store.get(
@@ -544,7 +583,7 @@ export class ChatService {
         session.messages.push({
           id: id(),
           role: "status",
-          text: `已切换到 ${connection.name}（${connection.runtime}）。将根据最近的聊天记录建立上下文。`,
+          text: `Switched to ${connection.name} (${connection.runtime}). Context will be restored from recent messages.`,
         });
       }
       if (data.title !== undefined) session.title = data.title;
@@ -567,7 +606,7 @@ export class ChatService {
       id: id(),
       userId,
       ...data,
-      title: "新对话",
+      title: "New conversation",
       messages: [],
       status: "idle",
       runId: null,
@@ -585,7 +624,7 @@ export class ChatService {
   async session(userId: string, sessionId: string, recover = true) {
     const session = await this.store.get("sessions", objectId.parse(sessionId));
     if (!session || session.userId !== userId)
-      throw new AgentError("NOT_FOUND", "会话不存在", 404);
+      throw new AgentError("NOT_FOUND", "Session not found", 404);
     await this.projectAccess(userId, session.projectId);
     if (
       recover &&
@@ -602,7 +641,11 @@ export class ChatService {
     session.revision++;
     session.updatedAt = now();
     if (!(await this.store.saveSession(session, revision)))
-      throw new AgentError("CONFLICT", "会话已更新，请刷新后重试", 409);
+      throw new AgentError(
+        "CONFLICT",
+        "The session has changed. Refresh and try again.",
+        409,
+      );
     for (const listener of this.listeners.get(session.id) ?? [])
       listener(session);
   }
@@ -620,9 +663,17 @@ export class ChatService {
     return this.lock(sessionId, async () => {
       const session = await this.session(userId, sessionId, false);
       if (session.archivedAt)
-        throw new AgentError("ARCHIVED", "请先恢复已归档的对话", 409);
+        throw new AgentError(
+          "ARCHIVED",
+          "Restore the archived conversation first",
+          409,
+        );
       if (session.runId)
-        throw new AgentError("BUSY", "请等待当前任务结束或先停止任务", 409);
+        throw new AgentError(
+          "BUSY",
+          "Wait for the current task to finish, or stop it first",
+          409,
+        );
       await this.ownedConnection(
         userId,
         session.connectionId,
@@ -632,7 +683,7 @@ export class ChatService {
       if (!live)
         throw new AgentError(
           "OFFLINE",
-          "连接器离线，请先在自己的设备上启动",
+          "The connector is offline. Start it on your device first.",
           409,
         );
       if (data.attachment) {
@@ -640,10 +691,16 @@ export class ChatService {
           entries: { id: string }[];
         };
         if (!tree.entries.some((e) => e.id === data.attachment!.docId))
-          throw new AgentError("INVALID_ATTACHMENT", "附件不属于当前项目");
+          throw new AgentError(
+            "INVALID_ATTACHMENT",
+            "The attachment does not belong to this project",
+          );
       }
       if (session.messages.length >= 100)
-        throw new AgentError("SESSION_LIMIT", "此会话已达长度限制，请新建对话");
+        throw new AgentError(
+          "SESSION_LIMIT",
+          "This session has reached its length limit. Start a new conversation.",
+        );
       const context = session.messages
         .filter((m) => m.role === "user" || m.role === "assistant")
         .slice(-20);
@@ -656,7 +713,8 @@ export class ChatService {
         text: data.text,
         attachment: data.attachment,
       });
-      if (session.title === "新对话") session.title = data.text.slice(0, 40);
+      if (session.title === "New conversation")
+        session.title = data.text.slice(0, 40);
       await this.save(session);
       if (
         !live.send({
@@ -672,9 +730,9 @@ export class ChatService {
       ) {
         await this.interruptSession(
           session,
-          "连接已中断；请检查文档后重新发送。",
+          "The connection was interrupted. Check the document before sending the request again.",
         );
-        throw new AgentError("OFFLINE", "连接器已断开", 409);
+        throw new AgentError("OFFLINE", "The connector has disconnected", 409);
       }
       return session;
     });
@@ -704,9 +762,14 @@ export class ChatService {
         session.permission?.id !== data.permissionId ||
         !session.permission.options.some((o) => o.optionId === data.optionId)
       )
-        throw new AgentError("STALE_PERMISSION", "这个操作询问已失效", 409);
+        throw new AgentError(
+          "STALE_PERMISSION",
+          "This permission request is no longer active",
+          409,
+        );
       const live = this.live.get(session.connectionId);
-      if (!live) throw new AgentError("OFFLINE", "连接器离线", 409);
+      if (!live)
+        throw new AgentError("OFFLINE", "The connector is offline", 409);
       live.send({
         type: "permission",
         sessionId,
@@ -732,9 +795,13 @@ export class ChatService {
         session.userId !== connection.userId ||
         session.connectionId !== connection.id
       )
-        throw new AgentError("NOT_FOUND", "会话不存在", 404);
+        throw new AgentError("NOT_FOUND", "Session not found", 404);
       if (session.runId !== data.runId || !this.live.has(connection.id))
-        throw new AgentError("STALE_RUN", "任务已结束或中断", 409);
+        throw new AgentError(
+          "STALE_RUN",
+          "The task has finished or was interrupted",
+          409,
+        );
       await this.projectAccess(connection.userId, session.projectId);
       const event: BridgeEvent = data.event;
       if (event.type === "message") {
@@ -752,7 +819,10 @@ export class ChatService {
         if (index >= 0) session.messages[index] = message;
         else if (session.messages.length < 120) session.messages.push(message);
         else
-          throw new AgentError("SESSION_LIMIT", "会话已达长度限制，请新建对话");
+          throw new AgentError(
+            "SESSION_LIMIT",
+            "This session has reached its length limit. Start a new conversation.",
+          );
       } else if (event.type === "permission") {
         if (session.status === "cancelling") return { accepted: false };
         session.permission = event.permission;
@@ -764,9 +834,9 @@ export class ChatService {
           text:
             event.message ||
             {
-              completed: "任务完成",
-              cancelled: "已停止；已提交的编辑会保留",
-              error: "Agent 执行失败",
+              completed: "Task completed",
+              cancelled: "Stopped. Edits already submitted are preserved.",
+              error: "Agent execution failed",
             }[event.reason],
         });
         session.status = event.reason === "error" ? "interrupted" : "idle";
@@ -780,7 +850,8 @@ export class ChatService {
   private async interruptSession(session: ChatSession, message: string) {
     if (session.agentState === "preparing") {
       session.agentState = "error";
-      session.agentError = "会话初始化中断，连接恢复后可重新发送消息。";
+      session.agentError =
+        "Session initialization was interrupted. Send your message again after reconnecting.";
     }
     session.status = "interrupted";
     session.runId = null;
@@ -795,7 +866,7 @@ export class ChatService {
         if (session && (session.runId || session.agentState === "preparing"))
           await this.interruptSession(
             session,
-            "连接中断，任务未自动重放。请检查文档后继续。",
+            "The connection was interrupted. The task was not replayed. Check the document before continuing.",
           );
       });
     }

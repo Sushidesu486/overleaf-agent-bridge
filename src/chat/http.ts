@@ -8,13 +8,14 @@ async function jsonBody(req: IncomingMessage) {
   let bytes = 0;
   for await (const chunk of req) {
     bytes += chunk.length;
-    if (bytes > 100_000) throw new AgentError("TOO_LARGE", "请求过大", 413);
+    if (bytes > 100_000)
+      throw new AgentError("TOO_LARGE", "The request is too large", 413);
     chunks.push(Buffer.from(chunk));
   }
   try {
     return JSON.parse(Buffer.concat(chunks).toString("utf8"));
   } catch {
-    throw new AgentError("INVALID_INPUT", "请求格式错误");
+    throw new AgentError("INVALID_INPUT", "Invalid request format");
   }
 }
 export function startEvents(res: ServerResponse) {
@@ -59,7 +60,11 @@ export async function handleBridge(
         until: Date.now() + 60_000,
       };
       if (++rate.count > 20)
-        throw new AgentError("RATE_LIMITED", "请求过于频繁，请稍后再试", 429);
+        throw new AgentError(
+          "RATE_LIMITED",
+          "Too many requests. Please try again later.",
+          429,
+        );
       attempts.set(key, rate);
       const result = await chat.pair(await jsonBody(req));
       res
@@ -115,7 +120,7 @@ export async function handleBridge(
         await chat.prepareConnection(credential);
       return;
     }
-    throw new AgentError("NOT_FOUND", "接口不存在", 404);
+    throw new AgentError("NOT_FOUND", "Endpoint not found", 404);
   } catch (error) {
     if (!res.headersSent)
       res

@@ -136,7 +136,7 @@ test("connection preparation creates one session with fixed tools/instructions a
     );
     await assert.rejects(
       runtime.prepare({ ...prepare, projectId: "222222222222222222222222" }),
-      /项目不一致/,
+      /different project/,
     );
     await runtime.command({
       ...command("rebound", "continue after handoff"),

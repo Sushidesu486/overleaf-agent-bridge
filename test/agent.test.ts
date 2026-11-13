@@ -107,13 +107,13 @@ test("personal links bind identity, enforce scope, rotate/revoke and current pro
     !JSON.stringify([...f.grants.values()]).includes(credential.split(".")[1]),
   );
   assert.ok(!JSON.stringify(await f.service.state("alice")).includes("digest"));
-  await assert.rejects(f.service.rotate("bob", issued.grant.id), /不存在/);
+  await assert.rejects(f.service.rotate("bob", issued.grant.id), /not found/);
   await assert.rejects(
     f.service.execute(credential, "overleaf_compile", { projectId }),
-    /授权范围/,
+    /outside the scope/,
   );
   const next = await f.service.rotate("alice", issued.grant.id);
-  await assert.rejects(f.service.authenticate(credential), /无效/);
+  await assert.rejects(f.service.authenticate(credential), /invalid/);
   assert.equal((await f.service.authenticate(key(next.url))).user.id, "alice");
   f.removeAccess();
   await assert.rejects(
@@ -121,10 +121,10 @@ test("personal links bind identity, enforce scope, rotate/revoke and current pro
       projectId,
       docId,
     }),
-    /项目权限/,
+    /does not have access/,
   );
   await f.service.revoke("alice", issued.grant.id);
-  await assert.rejects(f.service.authenticate(key(next.url)), /无效/);
+  await assert.rejects(f.service.authenticate(key(next.url)), /invalid/);
 });
 test("edits support Unicode, reject stale versions, reserve operation IDs, and keep unknown outcomes", async () => {
   const f = fixture();
@@ -149,7 +149,7 @@ test("edits support Unicode, reject stale versions, reserve operation IDs, and k
   );
   await assert.rejects(
     f.service.execute(credential, "overleaf_edit_document", args),
-    /文档已变化/,
+    /document has changed/,
   );
   const retry = {
     ...args,
@@ -159,7 +159,7 @@ test("edits support Unicode, reject stale versions, reserve operation IDs, and k
   };
   await assert.rejects(
     f.service.execute(credential, "overleaf_edit_document", retry),
-    /已提交/,
+    /already been submitted/,
   );
   f.backend.edit = async () => {
     throw new Error("simulated dropped response");
@@ -171,7 +171,7 @@ test("edits support Unicode, reject stale versions, reserve operation IDs, and k
   assert.equal([...f.operations.values()].at(-1)?.state, "unknown");
   await assert.rejects(
     f.service.execute(credential, "overleaf_edit_document", op),
-    /已提交/,
+    /already been submitted/,
   );
 });
 test("real HTTP MCP client uses only its URL; origin checks and revocation apply after initialization", async (t) => {
@@ -241,7 +241,7 @@ test("revocation during backend preparation stops the pending edit before submis
       newText: "Changed.",
       operationId: randomUUID(),
     }),
-    /无效/,
+    /invalid/,
   );
   assert.equal(submitted, false);
   assert.equal((await f.backend.read(projectId, docId)).version, 3);
@@ -275,7 +275,7 @@ test("compile-log reads require current project access, bind identity, and reche
       ...args,
       projectId: "333333333333333333333333",
     }),
-    /授权范围/,
+    /outside the scope/,
   );
   f.backend.compileLog = async () => {
     await f.service.revoke("alice", link.grant.id);
@@ -283,6 +283,6 @@ test("compile-log reads require current project access, bind identity, and reche
   };
   await assert.rejects(
     f.service.execute(key(link.url), "overleaf_get_compile_log", args),
-    /无效/,
+    /invalid/,
   );
 });

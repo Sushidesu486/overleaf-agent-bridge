@@ -21,14 +21,16 @@ export type SessionRecovery =
     };
 export function recoveryMessage(recovery: SessionRecovery): string {
   if (recovery.mode !== "rebuilt")
-    return recovery.mode === "new" ? "新会话已就绪" : "已恢复本机 Agent 原会话";
+    return recovery.mode === "new"
+      ? "New session ready"
+      : "Resumed the original local agent session";
   const reason = {
-    missing: "本机原会话已不存在",
-    unsupported: "当前 Agent 不支持恢复会话",
-    changed: "Agent 或对话绑定已变更",
-    unavailable: "此设备没有可恢复的会话索引",
+    missing: "The original local session no longer exists",
+    unsupported: "This agent does not support resuming sessions",
+    changed: "The agent or conversation binding has changed",
+    unavailable: "No resumable session index was found on this device",
   }[recovery.reason];
-  return `${reason}，将用最近消息继续对话`;
+  return `${reason}. Continuing with recent messages`;
 }
 export type ChatSession = {
   id: string;

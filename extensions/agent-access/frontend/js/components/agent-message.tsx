@@ -29,17 +29,20 @@ function CodeBlock({ text, language }: { text: string; language?: string }) {
   async function copy() {
     try {
       await navigator.clipboard.writeText(text);
-      setCopied({ text, message: "已复制" });
+      setCopied({ text, message: "Copied" });
     } catch {
-      setCopied({ text, message: "复制失败，请手动选择代码复制" });
+      setCopied({
+        text,
+        message: "Copy failed. Select and copy the code manually.",
+      });
     }
   }
   return (
     <div className="agent-code-block">
       <div className="agent-code-toolbar">
-        <span>{language?.split(/\s+/)[0].slice(0, 32) || "代码"}</span>
+        <span>{language?.split(/\s+/)[0].slice(0, 32) || "Code"}</span>
         <OLButton variant="secondary" size="sm" onClick={copy}>
-          复制代码
+          Copy code
         </OLButton>
       </div>
       {copied?.text === text && (
@@ -109,7 +112,7 @@ function tokensToReact(tokens: marked.Token[], depth = 0): ReactNode {
         const href = linkTarget(token.href);
         const label =
           token.type === "image"
-            ? `图片：${token.text || "查看图片"}`
+            ? `Image: ${token.text || "View image"}`
             : children();
         // Images are explicit links, so rendering a response makes no request
         // to an Agent-supplied remote host. HTML is always rendered as text.
@@ -131,7 +134,7 @@ function tokensToReact(tokens: marked.Token[], depth = 0): ReactNode {
         const items = token.items.map((item, i) => (
           <li key={i}>
             {item.task && (
-              <span aria-label={item.checked ? "已完成" : "未完成"}>
+              <span aria-label={item.checked ? "Completed" : "Incomplete"}>
                 {item.checked ? "☑ " : "☐ "}
               </span>
             )}
@@ -150,7 +153,7 @@ function tokensToReact(tokens: marked.Token[], depth = 0): ReactNode {
           <div
             className="agent-markdown-table"
             role="region"
-            aria-label="回复中的表格"
+            aria-label="Table in response"
             tabIndex={0}
           >
             <table>
@@ -208,12 +211,12 @@ function ToolMessage({ message }: { message: ChatMessage }) {
   const label =
     (
       {
-        pending: "准备中",
-        in_progress: "执行中",
-        completed: "完成",
-        failed: "失败",
+        pending: "Preparing",
+        in_progress: "Running",
+        completed: "Completed",
+        failed: "Failed",
       } as Record<string, string>
-    )[message.state || ""] || "工具调用";
+    )[message.state || ""] || "Tool call";
   return (
     <details open={open}>
       <summary
@@ -222,9 +225,9 @@ function ToolMessage({ message }: { message: ChatMessage }) {
           setExpanded(!open);
         }}
       >
-        {message.title || "工具调用"} · {label}
+        {message.title || "Tool call"} · {label}
       </summary>
-      <pre>{message.text || "暂未返回详细结果"}</pre>
+      <pre>{message.text || "No details returned yet"}</pre>
     </details>
   );
 }
@@ -244,10 +247,10 @@ export default function AgentMessage({
         <>
           <div className="agent-message-author small">
             {message.role === "user"
-              ? "你"
+              ? "You"
               : message.role === "assistant"
                 ? message.actorName || agentName || "Agent"
-                : "任务状态"}
+                : "Task status"}
           </div>
           {message.role === "assistant" ? (
             <AgentMarkdown text={message.text} />
@@ -256,9 +259,9 @@ export default function AgentMessage({
           )}
           {message.attachment && (
             <div className="small">
-              附件：{message.attachment.name}
+              Attachment: {message.attachment.name}
               {message.attachment.text
-                ? ` · 选区 ${message.attachment.text.length} 字符`
+                ? ` · Selection: ${message.attachment.text.length} characters`
                 : ""}
             </div>
           )}

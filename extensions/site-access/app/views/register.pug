@@ -1,0 +1,36 @@
+extends ../../../../app/views/layout-website-redesign
+
+block vars
+	- isWebsiteRedesign = true
+
+block content
+	main#main-content.content
+		.container
+			.row
+				.col-lg-6.offset-lg-3.col-xl-4.offset-xl-4
+					.page-header
+						h1 Create an account
+					if typeof error !== 'undefined' && error
+						.alert.alert-danger(role='alert')= error
+					if !settings.siteAccess.registration
+						p Contact the administrator to request an account.
+					else if typeof sent !== 'undefined' && sent
+						.alert.alert-success(role='status') Check your email
+						p Registration instructions have been sent. Open the link in your email to verify your address and set a password. The link expires in 30 minutes.
+						p.text-muted If your email already has an account, the message will include sign-in instructions. Check your spam folder if it does not arrive, or try again later.
+						a.btn.btn-secondary.w-100.mb-3(href='/register') Resend
+					else
+						p Join #{settings.appName} with your email address to collaborate on LaTeX documents.
+						form(action='/register' method='POST')
+							input(name='_csrf' type='hidden' value=csrfToken)
+							.form-group
+								label(for='registration-email') Email address
+								input#registration-email.form-control(name='email' type='email' autocomplete='email' maxlength='254' required autofocus)
+								.form-text All email domains are welcome. Verify your email address to set a password.
+							button.btn.btn-primary.w-100.mb-3(type='submit' data-site-submit) Send verification email
+					p.text-center
+						| Already have an account?#{' '}
+						a(href='/login') Sign in
+
+block append foot-scripts
+	script(src='/site-access.js' nonce=scriptNonce defer)

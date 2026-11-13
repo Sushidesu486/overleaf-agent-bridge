@@ -169,7 +169,7 @@ async function fixture({
       if (url === "/user/agent/chat/sessions") {
         const created = {
           ...session("created", options.body.connectionId),
-          title: "新对话",
+          title: "New conversation",
           messages: [],
         };
         this.sessions.push(created);
@@ -226,7 +226,7 @@ async function fixture({
   await act(async () => {
     view = create(React.createElement(AgentChat), {
       createNodeMock: (node) =>
-        node.props["aria-label"] === "Agent 对话记录" ? scroll : null,
+        node.props["aria-label"] === "Agent conversation" ? scroll : null,
     });
   });
   return {
@@ -269,19 +269,21 @@ const click = async (f, label) => {
   await act(async () => b.props.onClick());
 };
 const message = (f) =>
-  f.view.root.findByProps({ "aria-label": "发给 Agent 的消息" });
+  f.view.root.findByProps({ "aria-label": "Message to agent" });
 
 test("streaming follows the latest reply until the reader scrolls up", async () => {
   const f = await fixture();
   try {
     assert.equal(f.scroll.scrollTop, 1000);
-    const record = f.view.root.findByProps({ "aria-label": "Agent 对话记录" });
+    const record = f.view.root.findByProps({
+      "aria-label": "Agent conversation",
+    });
     f.scroll.scrollTop = 100;
     await act(async () => record.props.onScroll({ currentTarget: f.scroll }));
     f.scroll.scrollHeight = 1600;
     await f.publish({ ...f.state.sessions[0], revision: 2 });
     assert.equal(f.scroll.scrollTop, 100);
-    await click(f, "回到最新");
+    await click(f, "Jump to latest");
     assert.equal(f.scroll.scrollTop, 1600);
     f.scroll.scrollHeight = 1800;
     await f.publish({ ...f.state.sessions[0], revision: 3 });
@@ -350,7 +352,7 @@ test("a pending send preserves the next draft, including a conversation's first 
       );
       let sending;
       await act(async () => {
-        sending = button(f, "发送").props.onClick();
+        sending = button(f, "Send").props.onClick();
       });
       await act(async () =>
         message(f).props.onChange({ target: { value: "next draft" } }),
@@ -409,7 +411,7 @@ test("Markdown renders structure without active HTML or remote images; code copy
     );
     const copy = view.root
       .findAllByType("button")
-      .find((b) => b.children.includes("复制代码"));
+      .find((b) => b.children.includes("Copy code"));
     await act(async () => copy.props.onClick());
     assert.equal(copied, code);
   } finally {
@@ -468,7 +470,7 @@ test("an online connector never replaces the conversation being read", async () 
     f.state.sessions.unshift(session("other", "fresh"));
     await f.poll();
     assert.equal(title(f), "previous");
-    assert.ok(button(f, "选择 Agent 继续此对话"));
+    assert.ok(button(f, "Choose an agent to continue"));
     assert.equal(f.storage.get("overleaf-agent-session:project"), "previous");
     assert.equal(f.state.posts.length, 0);
   } finally {
@@ -482,23 +484,23 @@ test("new conversation stays local until first send and drafts survive history n
     await act(async () =>
       message(f).props.onChange({ target: { value: "old draft" } }),
     );
-    await click(f, "新对话");
-    assert.equal(title(f), "新对话");
+    await click(f, "New conversation");
+    assert.equal(title(f), "New conversation");
     assert.equal(message(f).props.value, "");
     assert.equal(f.state.posts.length, 0);
     await act(async () =>
       message(f).props.onChange({ target: { value: "new draft" } }),
     );
-    await click(f, "对话历史");
+    await click(f, "Conversation history");
     const item = f.view.root
       .findAllByType("button")
       .find((n) => n.props.className === "agent-conversation-item");
     await act(async () => item.props.onClick());
     assert.equal(title(f), "previous");
     assert.equal(message(f).props.value, "old draft");
-    await click(f, "新对话");
+    await click(f, "New conversation");
     assert.equal(message(f).props.value, "new draft");
-    await click(f, "发送");
+    await click(f, "Send");
     assert.equal(
       f.state.posts.filter((p) => p.url === "/user/agent/chat/sessions").length,
       1,
@@ -513,7 +515,7 @@ test("new conversation stays local until first send and drafts survive history n
 test("an explicitly selected new draft remains a draft after reload", async () => {
   const f = await fixture({ saved: "", connections: [old, fresh] });
   try {
-    assert.equal(title(f), "新对话");
+    assert.equal(title(f), "New conversation");
     assert.equal(f.state.posts.length, 0);
   } finally {
     await f.close();
@@ -523,7 +525,7 @@ test("an explicitly selected new draft remains a draft after reload", async () =
 test("renaming, archiving and restoring update the same conversation", async () => {
   const f = await fixture({ connections: [{ ...old, online: true }] });
   try {
-    await click(f, "管理当前对话");
+    await click(f, "Manage conversation");
     await act(async () =>
       f.view.root
         .findByProps({ id: "agent-conversation-title" })
@@ -533,14 +535,14 @@ test("renaming, archiving and restoring update the same conversation", async () 
       f.view.root.findByType("form").props.onSubmit({ preventDefault() {} }),
     );
     assert.equal(title(f), "Useful title");
-    await click(f, "管理当前对话");
-    await click(f, "归档对话");
+    await click(f, "Manage conversation");
+    await click(f, "Archive conversation");
     assert.equal(message(f).props.disabled, true);
     assert.equal(f.state.sessions.length, 1);
-    await click(f, "管理当前对话");
+    await click(f, "Manage conversation");
     const restores = f.view.root
       .findAllByType("button")
-      .filter((n) => n.children.includes("恢复对话"));
+      .filter((n) => n.children.includes("Restore conversation"));
     await act(async () => restores.at(-1).props.onClick());
     assert.equal(message(f).props.disabled, false);
     assert.equal(f.state.sessions[0].id, "previous");
@@ -555,13 +557,13 @@ test("switching Agent preserves conversation identity, messages and draft", asyn
     await act(async () =>
       message(f).props.onChange({ target: { value: "continue this" } }),
     );
-    await click(f, "选择 Agent 继续此对话");
+    await click(f, "Choose an agent to continue");
     await act(async () =>
       f.view.root
         .findByProps({ id: "agent-conversation-connection" })
         .props.onChange({ target: { value: "fresh" } }),
     );
-    await click(f, "使用所选 Agent 继续");
+    await click(f, "Continue with selected agent");
     assert.equal(title(f), "previous");
     assert.equal(f.state.sessions[0].connectionId, "fresh");
     assert.equal(f.state.sessions[0].messages[0].text, "saved content");
@@ -579,7 +581,7 @@ test("history searches and archived view remain scoped to the current project", 
     ],
   });
   try {
-    await click(f, "对话历史");
+    await click(f, "Conversation history");
     const items = () =>
       f.view.root
         .findAllByType("button")
@@ -587,18 +589,18 @@ test("history searches and archived view remain scoped to the current project", 
     assert.equal(items().length, 1);
     await act(async () =>
       f.view.root
-        .findByProps({ "aria-label": "搜索对话" })
+        .findByProps({ "aria-label": "Search conversations" })
         .props.onChange({ target: { value: "not found" } }),
     );
     assert.equal(items().length, 0);
     await act(async () =>
       f.view.root
-        .findByProps({ "aria-label": "搜索对话" })
+        .findByProps({ "aria-label": "Search conversations" })
         .props.onChange({ target: { value: "" } }),
     );
     await act(async () =>
       f.view.root
-        .findByProps({ "aria-label": "对话范围" })
+        .findByProps({ "aria-label": "Conversation filter" })
         .props.onChange({ target: { value: "archived" } }),
     );
     assert.equal(items().length, 1);
@@ -636,7 +638,7 @@ test("online connectors for another project cannot take over this conversation",
   });
   try {
     assert.equal(title(f), "previous");
-    assert.ok(!button(f, "选择 Agent 继续此对话"));
+    assert.ok(!button(f, "Choose an agent to continue"));
     assert.ok(
       f.view.root
         .findAllByProps({ role: "status" })
@@ -671,7 +673,7 @@ test("pairing modal selects only its matching online connection, once", async ()
     });
     const pairButton = view.root
       .findAllByType("button")
-      .find((n) => n.children.includes("生成配对码"));
+      .find((n) => n.children.includes("Generate pairing code"));
     await act(async () => pairButton.props.onClick());
     await act(async () =>
       view.update(
@@ -704,7 +706,7 @@ test("pairing modal selects only its matching online connection, once", async ()
     assert.ok(
       view.root
         .findAllByType("notification")
-        .some((n) => n.props.content.includes("连接成功")),
+        .some((n) => n.props.content.includes("Connected.")),
     );
   } finally {
     if (view) await act(async () => view.unmount());

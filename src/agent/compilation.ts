@@ -43,7 +43,7 @@ export class CompileLogs {
       )
         throw new AgentError(
           "BUILD_NOT_FOUND",
-          "该账号下没有这次编译记录，或记录已过期；请重新编译",
+          "This compile record is unavailable for your account or has expired. Compile the project again.",
           404,
         );
       if (
@@ -53,7 +53,11 @@ export class CompileLogs {
           .some((part) => !part || part === "." || part === "..") ||
         !build.outputFiles.some((item) => item.path === file)
       )
-        throw new AgentError("LOG_NOT_FOUND", "这次编译没有该日志文件", 404);
+        throw new AgentError(
+          "LOG_NOT_FOUND",
+          "This log file is not part of the compile result",
+          404,
+        );
       const chunks: Buffer[] = [];
       let bytes = 0;
       let truncated = false;
@@ -72,7 +76,7 @@ export class CompileLogs {
       if (error instanceof AgentError) throw error;
       throw new AgentError(
         "LOG_UNAVAILABLE",
-        "编译日志暂时不可用或已被清理；可重新编译获取新日志",
+        "The compile log is unavailable or has been removed. Compile again to obtain a new log.",
         502,
       );
     }

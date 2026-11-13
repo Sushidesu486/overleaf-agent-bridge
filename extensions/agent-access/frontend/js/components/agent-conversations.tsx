@@ -18,16 +18,16 @@ import type {
 
 const statusText = (s: SessionSummary) =>
   s.archivedAt
-    ? "已归档"
+    ? "Archived"
     : s.runId
       ? s.status === "waiting_permission"
-        ? "等待确认"
+        ? "Awaiting approval"
         : s.status === "cancelling"
-          ? "正在停止"
-          : "处理中"
+          ? "Stopping"
+          : "Working"
       : s.status === "interrupted"
-        ? "已中断"
-        : "可继续";
+        ? "Interrupted"
+        : "Ready to continue";
 
 export function AgentConversationHistory({
   projectId,
@@ -79,7 +79,10 @@ export function AgentConversationHistory({
         setMore(page.length === 30);
       } catch (e) {
         if (generation === request.current)
-          setError(getUserFacingMessage(e as Error) || "读取历史失败，请重试");
+          setError(
+            getUserFacingMessage(e as Error) ||
+              "Unable to load conversation history. Please try again.",
+          );
       } finally {
         if (generation === request.current) setBusy(false);
       }
@@ -103,34 +106,35 @@ export function AgentConversationHistory({
       className="agent-conversations-modal"
     >
       <OLModalHeader closeButton>
-        <OLModalTitle>对话历史</OLModalTitle>
+        <OLModalTitle>Conversation history</OLModalTitle>
       </OLModalHeader>
       <OLModalBody>
         <p className="small">
-          这里只显示你在当前项目的对话。聊天记录保存在 Overleaf 服务端。
+          Only your conversations in this project are shown. Chat history is
+          stored on the Overleaf server.
         </p>
         <div className="d-flex gap-2 mb-3">
           <OLFormControl
             type="search"
-            aria-label="搜索对话"
-            placeholder="搜索对话标题"
+            aria-label="Search conversations"
+            placeholder="Search conversation titles"
             maxLength={100}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
           <OLFormSelect
-            aria-label="对话范围"
+            aria-label="Conversation filter"
             value={archived ? "archived" : "active"}
             onChange={(e) => setArchived(e.target.value === "archived")}
           >
-            <option value="active">最近对话</option>
-            <option value="archived">已归档</option>
+            <option value="active">Recent conversations</option>
+            <option value="archived">Archived</option>
           </OLFormSelect>
         </div>
         {error && <Notification type="error" content={error} />}
         <div
           className="agent-conversation-list"
-          aria-label="对话列表"
+          aria-label="Conversations"
           aria-busy={busy}
         >
           {items.map((s) => (
@@ -152,16 +156,16 @@ export function AgentConversationHistory({
           {!busy && !items.length && (
             <p className="small">
               {search
-                ? "没有找到匹配的对话。"
+                ? "No matching conversations found."
                 : archived
-                  ? "还没有归档的对话。"
-                  : "发送第一条消息后，对话会保存在这里。"}
+                  ? "No archived conversations yet."
+                  : "Conversations appear here after you send the first message."}
             </p>
           )}
         </div>
         {busy && (
           <p role="status" className="small">
-            正在读取对话…
+            Loading conversation…
           </p>
         )}
         {more && (
@@ -170,7 +174,7 @@ export function AgentConversationHistory({
             disabled={busy}
             onClick={() => void load(items.at(-1))}
           >
-            加载更多
+            Load more
           </OLButton>
         )}
         {error && (
@@ -179,7 +183,7 @@ export function AgentConversationHistory({
             disabled={busy}
             onClick={() => void load()}
           >
-            重试
+            Retry
           </OLButton>
         )}
       </OLModalBody>
@@ -219,7 +223,10 @@ export function AgentConversationSettings({
       await onUpdate(change);
       onHide();
     } catch (e) {
-      setError(getUserFacingMessage(e as Error) || "保存失败，请重试");
+      setError(
+        getUserFacingMessage(e as Error) ||
+          "Unable to save changes. Please try again.",
+      );
     } finally {
       setBusy(false);
     }
@@ -232,32 +239,44 @@ export function AgentConversationSettings({
       className="agent-conversations-modal"
     >
       <OLModalHeader closeButton>
-        <OLModalTitle>管理当前对话</OLModalTitle>
+        <OLModalTitle>Manage conversation</OLModalTitle>
       </OLModalHeader>
       <OLModalBody>
         {error && <Notification type="error" content={error} />}
         <details className="small mb-3">
-          <summary>记录保存在哪里？重连后如何继续？</summary>
+          <summary>
+            Where is history stored, and how does reconnection work?
+          </summary>
           <p className="mt-2">
-            聊天记录保存在 Overleaf
-            服务端，按你的账号和项目隔离。本机的连接凭据、工作目录和会话索引默认位于
-            <code>~/.config/overleaf-agent/</code>；Windows 中 ~
-            指你的用户目录。 自定义 --config 时，保存在该配置文件所在目录。
+            Chat history is stored on the Overleaf server, scoped to your
+            account and project. Local connection credentials, working
+            directories and session indexes are stored in
+            <code>~/.config/overleaf-agent/</code>. On Windows, ~ means your
+            user directory. With a custom --config path, files are stored next
+            to that configuration file.
           </p>
           <p>
-            连接器重启后优先恢复本机 Agent 原会话。换设备、切换 Agent
-            或原会话不可用时， 会用最近 20 条用户与助手消息（最多 4
-            万字符）继续对话，不包含工具详情。
-            登录或网络错误会提示重试。重连不会自动重发中断的任务。
+            After restarting, the connector tries to resume the original local
+            agent session. If you change devices or agents, or the original
+            session is unavailable, it uses the latest 20 user and assistant
+            messages (up to 40,000 characters) to continue, excluding tool
+            details. Sign-in or network errors prompt a retry. Reconnecting does
+            not automatically resubmit interrupted tasks.
           </p>
           <p>
-            会话索引位于 <code>sessions/&lt;连接 ID&gt;/</code>
-            ，只保存对应关系； 原生记录由 Codex 或 Claude 管理，默认分别在{" "}
-            <code>~/.codex/sessions/</code>和 <code>~/.claude/projects/</code>
-            。归档网页对话会保留这些记录。
+            Session indexes are stored in{" "}
+            <code>sessions/&lt;connection-id&gt;/</code>, and only record
+            session mappings. Codex and Claude manage their native history,
+            stored by default in <code>~/.codex/sessions/</code> and{" "}
+            <code>~/.claude/projects/</code>. Archiving a web conversation
+            preserves these records.
           </p>
         </details>
-        {session.runId && <p role="status">请先停止当前任务，再管理对话。</p>}
+        {session.runId && (
+          <p role="status">
+            Stop the current task before managing this conversation.
+          </p>
+        )}
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -265,7 +284,7 @@ export function AgentConversationSettings({
           }}
         >
           <label htmlFor="agent-conversation-title" className="form-label">
-            对话标题
+            Conversation title
           </label>
           <OLFormControl
             id="agent-conversation-title"
@@ -283,7 +302,7 @@ export function AgentConversationSettings({
               disabled || !title.trim() || title.trim() === session.title
             }
           >
-            保存标题
+            Save title
           </OLButton>
         </form>
         {!session.archivedAt && (
@@ -292,7 +311,7 @@ export function AgentConversationSettings({
               htmlFor="agent-conversation-connection"
               className="form-label"
             >
-              执行当前对话的 Agent
+              Agent for this conversation
             </label>
             <OLFormSelect
               id="agent-conversation-connection"
@@ -301,7 +320,9 @@ export function AgentConversationSettings({
               onChange={(e) => setConnectionId(e.target.value)}
             >
               {!connections.some((c) => c.id === session.connectionId) && (
-                <option value={session.connectionId}>原连接不可用</option>
+                <option value={session.connectionId}>
+                  Original connection unavailable
+                </option>
               )}
               {connections
                 .filter(
@@ -311,17 +332,19 @@ export function AgentConversationSettings({
                 )
                 .map((c) => (
                   <option key={c.id} value={c.id}>
-                    {c.name} · {c.runtime} · {c.online ? "在线" : "离线"}
+                    {c.name} · {c.runtime} · {c.online ? "Online" : "Offline"}
                   </option>
                 ))}
             </OLFormSelect>
             <p className="small mt-2">
-              切换后保留当前聊天记录，新 Agent
-              会根据最近的对话重建上下文。请检查文档后继续发送，不会自动重试之前的任务。
+              Switching preserves this chat history. The new agent rebuilds
+              context from recent messages. Check the document before
+              continuing; previous tasks are not retried automatically.
             </p>
             {selected?.online && !selected.canRebind && (
               <p className="small">
-                此连接需要下载新版连接器，才能接手现有对话。
+                Download the latest connector to continue an existing
+                conversation with this connection.
               </p>
             )}
             <OLButton
@@ -334,20 +357,23 @@ export function AgentConversationSettings({
               }
               onClick={() => void update({ connectionId })}
             >
-              使用所选 Agent 继续
+              Continue with selected agent
             </OLButton>
           </div>
         )}
         <div className="mt-4">
           <p className="small">
-            归档会收起对话，聊天记录仍保留；可从历史记录中恢复。
+            Archiving hides the conversation and preserves its history. You can
+            restore it from conversation history.
           </p>
           <OLButton
             variant="secondary"
             disabled={disabled}
             onClick={() => void update({ archived: !session.archivedAt })}
           >
-            {session.archivedAt ? "恢复对话" : "归档对话"}
+            {session.archivedAt
+              ? "Restore conversation"
+              : "Archive conversation"}
           </OLButton>
         </div>
       </OLModalBody>

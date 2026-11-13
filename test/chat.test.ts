@@ -161,7 +161,7 @@ test("pairing is one-time, project scoped; rotation invalidates both channels", 
     c = await f.paired();
   await assert.rejects(
     f.chat.pair({ code: c.code, runtime: "again" }),
-    /配对码/,
+    /pairing code/,
   );
   await assert.rejects(
     f.chat.createSession("bob", {
@@ -174,11 +174,11 @@ test("pairing is one-time, project scoped; rotation invalidates both channels", 
       connectionId: c.connectionId,
       projectId: "222222222222222222222222",
     }),
-    /未授权/,
+    /not authorized/,
   );
   const { connection } = await f.chat.authenticate(c.credential);
   await f.agent.rotate("alice", connection.grantId);
-  await assert.rejects(f.chat.authenticate(c.credential), /重置/);
+  await assert.rejects(f.chat.authenticate(c.credential), /reset/);
 });
 test("sessions isolate users, serialize prompts, preserve events and do not replay after reconnect", async () => {
   const f = fixture(),
@@ -196,12 +196,12 @@ test("sessions isolate users, serialize prompts, preserve events and do not repl
     connectionId: c.connectionId,
     projectId: project,
   });
-  await assert.rejects(f.chat.session("bob", s.id), /不存在/);
+  await assert.rejects(f.chat.session("bob", s.id), /not found/);
   await f.chat.prompt("alice", s.id, { text: "edit" });
   const run = (commands[0] as Extract<BridgeCommand, { type: "prompt" }>).runId;
   await assert.rejects(
     f.chat.prompt("alice", s.id, { text: "duplicate" }),
-    /当前任务/,
+    /current task/,
   );
   await f.chat.event(c.credential, {
     sessionId: s.id,
@@ -236,7 +236,7 @@ test("sessions isolate users, serialize prompts, preserve events and do not repl
       runId: run,
       event: { type: "done", reason: "completed" },
     }),
-    /中断/,
+    /interrupted/,
   );
   assert.equal(
     (await f.chat.session("alice", s.id)).messages.find(
@@ -276,7 +276,7 @@ test("permission replies and cancellation bind the active run; revocation and AC
   });
   await assert.rejects(
     f.chat.permission("alice", s.id, { permissionId: "p", optionId: "forged" }),
-    /失效/,
+    /no longer active/,
   );
   await f.chat.permission("alice", s.id, {
     permissionId: "p",
@@ -292,7 +292,7 @@ test("permission replies and cancellation bind the active run; revocation and AC
   });
   assert.equal((await f.chat.session("alice", s.id)).runId, null);
   f.removeAccess();
-  await assert.rejects(f.chat.session("alice", s.id), /访问权限/);
+  await assert.rejects(f.chat.session("alice", s.id), /no longer have access/);
   await f.chat.revoke("alice", c.connectionId);
   await assert.rejects(f.chat.authenticate(c.credential));
   await assert.rejects(
@@ -344,7 +344,7 @@ test("connection prepares a scoped conversation and readiness is isolated by con
   );
   await assert.rejects(
     f.chat.prepared(other.credential, { sessionId: session.id }),
-    /会话不存在/,
+    /session not found/i,
   );
   await f.chat.prepared(c.credential, {
     sessionId: session.id,
@@ -436,7 +436,7 @@ test("connection status distinguishes other project scopes without granting acce
         projectId: other,
         connectionId: c.connectionId,
       }),
-      /未授权/,
+      /not authorized/,
     );
   } finally {
     await live.disconnect();
@@ -462,7 +462,7 @@ test("conversation management keeps history, enforces ownership and archives wit
       revision: session.revision,
       archived: true,
     }),
-    /停止当前任务/,
+    /Stop the current task/,
   );
   await f.chat.event(c.credential, {
     sessionId: session.id,
@@ -475,11 +475,11 @@ test("conversation management keeps history, enforces ownership and archives wit
       revision: session.revision,
       title: "stolen",
     }),
-    /不存在/,
+    /not found/,
   );
   await assert.rejects(
     f.chat.updateSession("alice", session.id, { revision: 0, title: "stale" }),
-    /已更新/,
+    /has changed/,
   );
   await assert.rejects(
     f.chat.updateSession("alice", session.id, {
@@ -509,7 +509,7 @@ test("conversation management keeps history, enforces ownership and archives wit
   );
   await assert.rejects(
     f.chat.prompt("alice", session.id, { text: "continue" }),
-    /归档/,
+    /archived/,
   );
   await f.chat.updateSession("alice", session.id, {
     revision: archived.revision,
@@ -522,7 +522,7 @@ test("conversation management keeps history, enforces ownership and archives wit
       revision: archived.revision + 1,
       title: "no",
     }),
-    /访问权限/,
+    /no longer have access/,
   );
 });
 
@@ -567,7 +567,7 @@ test("a conversation can change authorized connectors without accepting old read
       revision: 0,
       connectionId: legacy.connectionId,
     }),
-    /新版连接器/,
+    /latest connector/,
   );
   const moved = await f.chat.updateSession("alice", initial.id, {
     revision: 0,
@@ -584,7 +584,7 @@ test("a conversation can change authorized connectors without accepting old read
   assert.equal(commands.filter((c) => c.type === "prompt").length, 0);
   await assert.rejects(
     f.chat.prepared(a.credential, { sessionId: initial.id }),
-    /不存在/,
+    /not found/,
   );
   await f.chat.prepared(b.credential, {
     sessionId: initial.id,
@@ -598,7 +598,7 @@ test("a conversation can change authorized connectors without accepting old read
   assert.equal(returned.bindingVersion, 2);
   await assert.rejects(
     f.chat.prepared(a.credential, { sessionId: initial.id, bindingVersion: 0 }),
-    /不存在/,
+    /not found/,
   );
   await f.chat.prepared(a.credential, {
     sessionId: initial.id,
@@ -611,7 +611,7 @@ test("a conversation can change authorized connectors without accepting old read
       revision: running.revision,
       connectionId: b.connectionId,
     }),
-    /停止当前任务/,
+    /Stop the current task/,
   );
   await assert.rejects(
     f.chat.event(b.credential, {
@@ -619,7 +619,7 @@ test("a conversation can change authorized connectors without accepting old read
       runId: running.runId,
       event: { type: "done", reason: "completed" },
     }),
-    /不存在/,
+    /not found/,
   );
   assert.equal(
     (commands.at(-1) as Extract<BridgeCommand, { type: "prompt" }>)
