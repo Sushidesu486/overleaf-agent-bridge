@@ -11,7 +11,10 @@ export class AgentError extends Error {
   }
 }
 export const objectId = z.string().regex(/^[a-f0-9]{24}$/);
-export const maxFileBytes = 2_000_000;
+export const maxFileBytes = 50_000_000;
+export const maxTextFileBytes = 2_000_000;
+// Base64 adds roughly one third to the attachment size, plus the JSON envelope.
+export const maxMcpRequestBytes = 72 * 1024 * 1024;
 export const createFileInput = z
   .object({
     projectId: objectId,
@@ -28,7 +31,10 @@ export const createFileInput = z
           !Object.prototype.hasOwnProperty.call(Object.prototype, name),
         "Use a single valid filename",
       ),
-    content: z.string().max(3_000_000).default(""),
+    content: z
+      .string()
+      .max(Math.ceil(maxFileBytes / 3) * 4)
+      .default(""),
     encoding: z.enum(["utf8", "base64"]).default("utf8"),
     operationId: z.string().uuid(),
     dryRun: z.boolean().default(false),
@@ -49,6 +55,11 @@ export type DeleteFileInput = z.infer<typeof deleteFileInput>;
 function prepareCreateFile(args: CreateFileInput) {
   let bytes: Buffer;
   if (args.encoding === "base64") {
+    if (Buffer.byteLength(args.content, "base64") > maxFileBytes)
+      throw new AgentError(
+        "FILE_TOO_LARGE",
+        "The attachment exceeds the 50 MB limit",
+      );
     bytes = Buffer.from(args.content, "base64");
     if (bytes.toString("base64") !== args.content)
       throw new AgentError(
@@ -57,6 +68,11 @@ function prepareCreateFile(args: CreateFileInput) {
       );
   } else {
     args.content = args.content.replace(/\r\n?/g, "\n");
+    if (Buffer.byteLength(args.content, "utf8") > maxTextFileBytes)
+      throw new AgentError(
+        "FILE_TOO_LARGE",
+        "Editable text exceeds the 2 MB limit. Upload images (including SVG) as Base64 attachments, up to 50 MB.",
+      );
     if (/[\u0000\uD800-\uDFFF]/u.test(args.content))
       throw new AgentError(
         "INVALID_TEXT",
@@ -64,8 +80,6 @@ function prepareCreateFile(args: CreateFileInput) {
       );
     bytes = Buffer.from(args.content, "utf8");
   }
-  if (bytes.length > maxFileBytes)
-    throw new AgentError("FILE_TOO_LARGE", "The file exceeds the 2 MB limit");
   return {
     folderId: args.folderId,
     name: args.name,
@@ -308,6 +322,7 @@ export class AgentService {
           fileCreation: true,
           fileDeletion: true,
           maxFileBytes,
+          maxTextFileBytes,
           presenceLabel: false,
         },
       };
@@ -430,7 +445,7 @@ export class AgentService {
       doc.content.slice(0, index) +
       args.newText +
       doc.content.slice(index + args.oldText.length);
-    if (Buffer.byteLength(content) > 2_000_000)
+    if (Buffer.byteLength(content) > maxTextFileBytes)
       throw new AgentError(
         "DOCUMENT_TOO_LARGE",
         "The document exceeds the 2 MB limit",

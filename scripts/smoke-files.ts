@@ -166,7 +166,7 @@ try {
     (await call(client, "overleaf_read_document", { docId: bib.id })).content,
     /Overleaf Agent Bridge/,
   );
-  const bytes = randomBytes(2_000_000);
+  const bytes = randomBytes(50_000_000);
   const attachment = (
     await call(client, "overleaf_create_file", {
       name: "attachment.bin",
@@ -185,6 +185,21 @@ try {
     checksum(Buffer.from(await downloaded.arrayBuffer())),
     checksum(bytes),
   );
+  const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"><!--${"x".repeat(3_000_000)}--><rect width="1" height="1"/></svg>`;
+  const vector = (
+    await call(client, "overleaf_create_file", {
+      name: "vector.svg",
+      encoding: "base64",
+      content: Buffer.from(svgContent).toString("base64"),
+      ...op(),
+    })
+  ).result;
+  assert.equal(vector.type, "file");
+  const svgDownload = await browser.request(
+    `/project/${projectId}/file/${vector.id}`,
+  );
+  assert.equal(svgDownload.status, 200);
+  assert.equal(await svgDownload.text(), svgContent);
   const pixel = (
     await call(client, "overleaf_create_file", {
       name: "pixel.png",
@@ -258,7 +273,7 @@ try {
     { fileId: bib.id, expectedPath: "/renamed.bib", ...op() },
     "NOT_FOUND",
   );
-  for (const file of [attachment, pixel]) {
+  for (const file of [attachment, pixel, vector]) {
     const args = { fileId: file.id, expectedPath: file.path, ...op() };
     await call(client, "overleaf_delete_file", args);
     await call(
@@ -272,7 +287,12 @@ try {
     );
   }
   const finalHistory = await browser.json(`/project/${projectId}/updates`);
-  for (const pathname of ["renamed.bib", "attachment.bin", "pixel.png"]) {
+  for (const pathname of [
+    "renamed.bib",
+    "attachment.bin",
+    "pixel.png",
+    "vector.svg",
+  ]) {
     assert.ok(
       finalHistory.updates.some(
         (update: {
@@ -299,6 +319,7 @@ try {
         textAndBib: "read back",
         binaryBytes: bytes.length,
         binaryChecksum: "matched",
+        svgBytes: Buffer.byteLength(svgContent),
         concurrentNameCollision: "one creation",
         createAndDeleteHistory: "Your agent",
         compile: compilation.status,

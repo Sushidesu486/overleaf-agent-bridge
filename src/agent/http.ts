@@ -10,6 +10,7 @@ import {
   compileLogInput,
   createFileInput,
   deleteFileInput,
+  maxMcpRequestBytes,
 } from "./service.js";
 export { AgentService, AgentError, publicGrant } from "./service.js";
 import { compileWorkflow } from "./compilation.js";
@@ -82,7 +83,7 @@ export async function handleMcp(
       ],
       [
         "overleaf_create_file",
-        "Create a file without overwriting an existing name. Use utf8 for editable text (.tex, .bib), base64 for attachments (images, PDF). Limit: 2 MB decoded. folderId defaults to the root; obtain nested folder IDs from the project tree. Use a fresh UUID operationId; dryRun validates without writing. Refresh the tree after unknown results; do not replay.",
+        "Create a file without overwriting an existing name. Use utf8 for editable text (.tex, .bib), limited to 2 MB. Use base64 for attachments (JPG, PNG, SVG, PDF), limited to 50 MB decoded; upload SVG as an attachment even though its source is text. folderId defaults to the root; obtain nested folder IDs from the project tree. Use a fresh UUID operationId; dryRun validates without writing. Refresh the tree after unknown results; do not replay.",
         createFileInput.shape,
       ],
       [
@@ -146,7 +147,7 @@ export async function handleMcp(
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,
-      maxRequestBodySize: 8 * 1024 * 1024,
+      maxRequestBodySize: maxMcpRequestBytes,
     });
     res.on("close", () => {
       void server?.close();

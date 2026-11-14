@@ -4,7 +4,7 @@
 
 ## 1. 目标与本轮决策
 
-2026-11-14 MCP 文件接口：个人 HTTP MCP 增加 `overleaf_create_file` 和 `overleaf_delete_file`，沿用当前用户身份、grant 的 edit 范围与实时项目权限。新建支持 UTF-8 可编辑文档和 Base64 附件，最大 2 MB，不覆盖同名实体；删除按文件 ID + 当前绝对路径操作单个文档或附件。目录列表及父目录 ID 纳入项目树返回。复用原生结构锁、历史及广播，写入记录 operationId 并拒绝自动重放；暂不新增目录管理、移动或重命名工具。验证在 m701 隔离 Compose 中进行，生产部署单独推进。
+2026-11-14 MCP 文件接口：个人 HTTP MCP 增加 `overleaf_create_file` 和 `overleaf_delete_file`，沿用当前用户身份、grant 的 edit 范围与实时项目权限。新建支持 UTF-8 可编辑文档（最大 2 MB）和 Base64 附件（最大 50 MB，包含 JPG/PNG/SVG/PDF），HTTP 请求上限为 72 MiB，不覆盖同名实体；删除按文件 ID + 当前绝对路径操作单个文档或附件。目录列表及父目录 ID 纳入项目树返回。复用原生结构锁、历史及广播，写入记录 operationId 并拒绝自动重放；暂不新增目录管理、移动或重命名工具。验证在 m701 隔离 Compose 中进行，生产部署单独推进。
 
 2026-11-14 GitHub 关联决策：采用组织维护的 GitHub App。现有用户先用邮箱登录，再在 Account Settings 授权并确认 GitHub 身份；保留现有账号 ID、邮箱、密码、项目与 MCP 授权。首阶段仅做绑定、重复绑定检测和解绑，不进行自动邮箱合并、开放注册或替换登录方式。仓库安装授权及同步后续独立实现；当前不申请仓库权限、不持久化 GitHub token。应用尚未创建，先完成代码与隔离预览，配置及上线步骤见 [GitHub App setup](github-app-setup.md)。
 

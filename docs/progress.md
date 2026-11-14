@@ -1,5 +1,14 @@
 # Development progress
 
+## Larger MCP attachments (2026-11-14)
+
+Raised Base64 attachment creation to **50,000,000 decoded bytes** for JPG, PNG, SVG, PDF and other attachments. Editable UTF-8 documents retain the **2,000,000-byte** limit. SVG is uploaded as a Base64 attachment to use the larger limit. Tool descriptions, application instructions, errors, README and `whoami` capabilities now distinguish the two limits.
+
+- nginx and the MCP SDK accept **72 MiB** request bodies, covering Base64 expansion and the JSON envelope. Size validation runs before allocating decoded content; canonical Base64 validation remains in place. Current GitOps HTTPRoute and gateway traffic-policy manifests do not set an explicit smaller body-size limit. Production configuration was not changed.
+- Typecheck, formatting and 70 local tests passed (seven optional GitHub Mongo tests skipped). The targeted suite includes acceptance at 50 MB, rejection above the attachment limit, and the unchanged editable-text limit.
+- Native HTTP MCP smoke passed through nginx and the SDK: a **50,000,000-byte attachment** uploaded and downloaded with matching SHA-256, a **3,000,102-byte SVG** round-tripped exactly as an attachment, and create/delete/history/permission checks and compilation passed. Temporary grants were revoked.
+- Preview image: `overleaf-github-link-check:20261114-large-files`, manifest-list `sha256:2202df8f84e254065f648729a087f9e06cc57847c76e4a39c047191e52a0536e`, platform manifest `sha256:44ae03d356b7ee46a240e67c3cf0f245a95524c07eea40b80829496402310a5d`. The pinned CE 6.3.2 base/revision is unchanged from the file-tools implementation below. Docker build and native webpack passed, and the isolated port-18083 lab is healthy.
+
 ## MCP file creation and deletion (2026-11-14)
 
 The personal HTTP MCP now exposes nine tools, adding `overleaf_create_file` and `overleaf_delete_file`. Existing edit-enabled grants authorize these operations; read-only grants and current read-only project access cannot write. The legacy three-tool stdio adapter is unchanged.

@@ -6,6 +6,8 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import {
   AgentError,
+  maxFileBytes,
+  maxTextFileBytes,
   AgentService,
   type Grant,
   type Operation,
@@ -357,7 +359,10 @@ test("file creation validates text, binary, size and filenames before reserving 
     { content: "a\u0000b" },
     { content: "\ud800" },
     { content: "中".repeat(666_667) },
-    { content: Buffer.alloc(2_000_001).toString("base64"), encoding: "base64" },
+    {
+      content: Buffer.alloc(maxFileBytes + 1).toString("base64"),
+      encoding: "base64",
+    },
     ...[
       "../a.tex",
       "nested/a.tex",
@@ -370,6 +375,54 @@ test("file creation validates text, binary, size and filenames before reserving 
   ])
     await assert.rejects(create(extra));
   assert.equal(f.operations.size, 1);
+});
+
+test("attachments accept the 50 MB boundary while editable text stays at 2 MB", async () => {
+  const f = fixture();
+  const credential = key((await f.service.issue("alice", {})).url);
+  const identity = (await f.service.execute(
+    credential,
+    "overleaf_whoami",
+    {},
+  )) as { capabilities: { maxFileBytes: number; maxTextFileBytes: number } };
+  assert.equal(identity.capabilities.maxFileBytes, 50_000_000);
+  assert.equal(identity.capabilities.maxTextFileBytes, 2_000_000);
+  let submitted = 0;
+  f.backend.createFile = async (_project, _user, args, authorize) => {
+    await authorize();
+    assert.equal(
+      Buffer.byteLength(
+        args.content,
+        args.encoding === "base64" ? "base64" : "utf8",
+      ),
+      args.encoding === "base64" ? maxFileBytes : maxTextFileBytes,
+    );
+    submitted++;
+    return {};
+  };
+  await f.service.execute(credential, "overleaf_create_file", {
+    projectId,
+    name: "large.svg",
+    encoding: "base64",
+    content: Buffer.alloc(maxFileBytes).toString("base64"),
+    operationId: randomUUID(),
+  });
+  await f.service.execute(credential, "overleaf_create_file", {
+    projectId,
+    name: "large.tex",
+    content: "a".repeat(maxTextFileBytes),
+    operationId: randomUUID(),
+  });
+  await assert.rejects(
+    f.service.execute(credential, "overleaf_create_file", {
+      projectId,
+      name: "large.svg",
+      content: "a".repeat(maxTextFileBytes + 1),
+      operationId: randomUUID(),
+    }),
+    { code: "FILE_TOO_LARGE" },
+  );
+  assert.equal(submitted, 2);
 });
 
 test("file operations preserve uncertain outcomes and block replays across tools", async () => {
