@@ -1,5 +1,11 @@
 # Development progress
 
+## Direct Git read-only prototype (2026-11-14, in progress)
+
+Implemented the optional CE Git module, personal scoped tokens, immutable native history-ZIP export, signed/re-authorized attachment downloads, a native Integrations dialog and a reproducible official Java/JGit image. The actual Java service passes the standalone clone/pull contract test, including a 50,000,000-byte binary hash comparison and permission/revocation checks. Native frontend webpack also passed on m701. Push remains disabled. Detailed evidence, remaining work and reproduction commands are in [Git preview](git-preview.md).
+
+The independent m701 Compose lab uses loopback 18084. A CE Web/API double-listener conflict was fixed; real native clone then returned an error during token validation. m701 became unreachable before that could be diagnosed and before final source/image validation. No successful native clone/pull or browser visual acceptance is claimed. Production is unchanged.
+
 ## Direct Git remote design (2026-11-14)
 
 The user selected local `git clone / pull / push` against Overleaf projects as the first Git milestone. The [design](git-remote-design.md) proposes reusing the public MIT Java/JGit bridge, adding native CE token/snapshot interfaces, and retaining MCP for compilation and live editing. GitHub can be a separate local remote without GitHub App setup. The [reference](git-integration-reference.md) pins official-source evidence and records the API contracts.

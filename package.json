@@ -17,7 +17,9 @@
     "smoke:personal": "tsx scripts/smoke-personal.ts",
     "connect": "tsx src/connector/cli.ts",
     "build:connector": "esbuild src/connector/cli.ts --bundle --platform=node --format=esm --target=node20 --outfile=extensions/agent-access/public/overleaf-agent-connector.mjs",
-    "smoke:files": "tsx scripts/smoke-files.ts"
+    "smoke:files": "tsx scripts/smoke-files.ts",
+    "smoke:git": "tsx scripts/smoke-git.ts",
+    "smoke:git-bridge": "node scripts/smoke-git-bridge.mjs"
   },
   "keywords": [
     "overleaf",

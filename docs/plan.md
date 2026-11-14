@@ -1,6 +1,6 @@
 # Overleaf Agent 协作与 MCP 开发计划
 
-决策更新日期：2026-11-14（Asia/Shanghai）。新版 Overleaf 与扩展 MCP 已部署，当前状态以 [progress](progress.md) 为准；下文保留各阶段决策。当前新增优先项为项目直接 Git 访问，已完成源码调研与设计，尚未实现。服务端 DeepSeek Harness 仍处于调研阶段。
+决策更新日期：2026-11-14（Asia/Shanghai）。新版 Overleaf 与扩展 MCP 已部署，当前状态以 [progress](progress.md) 为准；下文保留各阶段决策。项目直接 Git 访问已开始实现：只读原型和真实 Java/JGit 协议测试已完成，CE 联调仍待排错，push 尚未启用；见 [Git preview](git-preview.md)。服务端 DeepSeek Harness 仍处于调研阶段。
 
 ## 1. 目标与本轮决策
 

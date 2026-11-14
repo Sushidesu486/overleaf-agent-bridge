@@ -34,6 +34,7 @@ RUN sh /opt/overleaf-agent/check-eps.sh
 FROM texlive
 COPY extensions/agent-access /overleaf/services/web/modules/agent-access
 COPY extensions/site-access /overleaf/services/web/modules/site-access
+COPY extensions/git-access /overleaf/services/web/modules/git-access
 COPY --from=frontend /overleaf/services/web/modules/agent-access/app/views/index.js /overleaf/services/web/modules/agent-access/app/views/index.js
 COPY --from=frontend /opt/overleaf-agent/frontend-assets /overleaf/services/web/public
 COPY patches/install.py /opt/overleaf-agent/install.py
@@ -41,9 +42,11 @@ COPY patches/history.py /opt/overleaf-agent/history.py
 COPY patches/frontend.py /opt/overleaf-agent/frontend.py
 COPY patches/site.py /opt/overleaf-agent/site.py
 COPY patches/compile-parser.cjs /opt/overleaf-agent/compile-parser.cjs
+COPY patches/git.py /opt/overleaf-agent/git.py
 # Source archives may be extracted with a private umask. Runtime workers use
 # www-data and need to read the bundled modules and connector assets.
 RUN chmod -R a+rX /overleaf/services/web/modules/agent-access /overleaf/services/web/modules/site-access \
     && /sbin/setuser www-data test -r /overleaf/services/web/modules/agent-access/history-actors.mjs \
     && /sbin/setuser www-data test -r /overleaf/services/web/modules/agent-access/public/overleaf-agent-connector.mjs
 RUN test -s /overleaf/services/web/modules/agent-access/public/overleaf-agent-connector.mjs && test -s /overleaf/services/web/modules/agent-access/mcp.cjs && python3 /opt/overleaf-agent/install.py && python3 /opt/overleaf-agent/history.py && python3 /opt/overleaf-agent/frontend.py && python3 /opt/overleaf-agent/site.py && node /opt/overleaf-agent/compile-parser.cjs
+RUN chmod -R a+rX /overleaf/services/web/modules/git-access && python3 /opt/overleaf-agent/git.py

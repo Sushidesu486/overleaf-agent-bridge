@@ -34,6 +34,8 @@ def replace(name, old, new):
 
 replace('config/settings.defaults.js', '    railEntries: [],',
         "    railEntries: [Path.resolve(__dirname, '../modules/agent-access/frontend/js/components/agent-rail.tsx')],")
+replace('config/settings.defaults.js', '    integrationPanelComponents: [],',
+        "    integrationPanelComponents: [Path.resolve(__dirname, '../modules/agent-access/frontend/js/components/git-integration.tsx')],")
 replace('frontend/js/features/ide-react/context/rail-context.tsx',
         "  | 'workbench'\n", "  | 'workbench'\n  | 'agent-access'\n")
 replace('frontend/stylesheets/main-style.scss',

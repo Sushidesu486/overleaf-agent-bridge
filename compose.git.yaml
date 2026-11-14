@@ -1,0 +1,20 @@
+# Optional direct Git access. Keep the adapter's private port off the host.
+# docker compose -f compose.yaml -f compose.git.yaml up -d --build
+services:
+  overleaf:
+    environment:
+      GIT_ACCESS_ENABLED: "true"
+      GIT_BRIDGE_SERVICE_SECRET: ${GIT_BRIDGE_SERVICE_SECRET:?required}
+  git-bridge:
+    build:
+      context: ./services/git-bridge
+    image: overleaf-git-bridge:dev
+    environment:
+      GIT_BRIDGE_SERVICE_SECRET: ${GIT_BRIDGE_SERVICE_SECRET:?required}
+      LOG_LEVEL: INFO
+    volumes: ["git-data:/var/lib/git-bridge"]
+    mem_limit: 1g
+    cpus: 2
+    stop_grace_period: 90s
+volumes:
+  git-data:

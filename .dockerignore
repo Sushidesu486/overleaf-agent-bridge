@@ -5,11 +5,14 @@
 !extensions/agent-access/**
 !extensions/site-access/
 !extensions/site-access/**
+!extensions/git-access/
+!extensions/git-access/**
 !patches/
 !patches/install.py
 !patches/history.py
 !patches/frontend.py
 !patches/site.py
+!patches/git.py
 !patches/build-frontend.cjs
 
 !patches/compile-parser.cjs
