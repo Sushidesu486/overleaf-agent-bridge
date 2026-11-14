@@ -135,7 +135,7 @@ Run `npm run smoke:files` with `OVERLEAF_LAB_ORIGIN` set to the isolated loopbac
 
 Account Settings includes an optional GitHub App connection for existing users. Users confirm the GitHub username before linking and can disconnect it later. Email login and projects are preserved; repository sync is planned separately. See [GitHub App setup](docs/github-app-setup.md) for registration, callback, secret configuration and deployment checks.
 
-Direct project Git access is under development. The optional read-only prototype includes personal Git tokens, a native Git dialog, a CE snapshot adapter and the official Java/JGit service; its transport contract passes real clone/pull and 50 MB attachment tests. Native CE validation is still incomplete and push remains disabled. See [preview status and resume steps](docs/git-preview.md), the [design](docs/git-remote-design.md) and [official integration research](docs/git-integration-reference.md). This workflow does not require GitHub account linking.
+Direct project Git access is under development. The optional read-only prototype includes personal Git tokens, a native Git dialog, a CE snapshot adapter and the official Java/JGit service; real CE clone/pull, 50 MB attachment integrity, native light/dark UI and token management have passed in the isolated m700 lab. Push remains disabled while multi-file coordination and recovery are developed. See [preview status and next steps](docs/git-preview.md), the [design](docs/git-remote-design.md) and [official integration research](docs/git-integration-reference.md). This workflow does not require GitHub account linking.
 
 ## Sidebar transport and persistence
 

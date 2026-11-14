@@ -1,10 +1,12 @@
 # Development progress
 
-## Direct Git read-only prototype (2026-11-14, in progress)
+## Direct Git read-only milestone (2026-11-15)
 
-Implemented the optional CE Git module, personal scoped tokens, immutable native history-ZIP export, signed/re-authorized attachment downloads, a native Integrations dialog and a reproducible official Java/JGit image. The actual Java service passes the standalone clone/pull contract test, including a 50,000,000-byte binary hash comparison and permission/revocation checks. Native frontend webpack also passed on m701. Push remains disabled. Detailed evidence, remaining work and reproduction commands are in [Git preview](git-preview.md).
+The optional CE Git module, personal scoped tokens, immutable native history export and official Java/JGit bridge now pass real clone/pull against an isolated CE instance on m700. Verified unchanged fetches, MCP edit → pull, Chinese text, 50 MB binary SHA-256, current membership/project scope and token revocation. Push remains disabled pending the planned multi-file barrier and recovery implementation.
 
-The independent m701 Compose lab uses loopback 18084. A CE Web/API double-listener conflict was fixed; real native clone then returned an error during token validation. m701 became unreachable before that could be diagnosed and before final source/image validation. No successful native clone/pull or browser visual acceptance is claimed. Production is unchanged.
+The user redirected work from unreachable m701 to m700. The current lab is `/var/tmp/overleaf-git-check`, Compose project `overleaf-git-check-m700`, loopback 18084; the development worktree is `/home/shouss/projects/overleaf-git-dev` on shared NFS. Docker data/build staging are on local disk. Production and its databases are unchanged.
+
+The full-TeX image also passed native Git regression with a 1 MB fixture, MCP compilation/PDF and outsider-account denial. Native frontend builds and light/dark browser acceptance passed, including copying the clone command and creating/revoking a named Agent token. Full local tests: 73 passed, eight optional Mongo cases skipped; the new real-Mongo Git regression and snapshot retention test separately passed on m700. Standards/Spec review fixes retain all active tokens in the management list and protect recently served snapshots from cleanup. Runtime digests, evidence, setup and the next write-path acceptance criteria are in [Git preview](git-preview.md).
 
 ## Direct Git remote design (2026-11-14)
 
