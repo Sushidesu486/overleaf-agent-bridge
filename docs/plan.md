@@ -1,8 +1,10 @@
 # Overleaf Agent 协作与 MCP 开发计划
 
-决策更新日期：2026-11-12（Asia/Shanghai）。个人 MCP、原生侧栏及邮箱数据副本的验证记录见下文。最新方向为服务端托管 DeepSeek Harness；当前仅完成接口调研，托管接入尚未实现。旧生产保持原部署，正式切换仍待验收。
+决策更新日期：2026-11-14（Asia/Shanghai）。新版 Overleaf 与扩展 MCP 已部署，当前状态以 [progress](progress.md) 为准；下文保留各阶段决策。当前新增优先项为项目直接 Git 访问，已完成源码调研与设计，尚未实现。服务端 DeepSeek Harness 仍处于调研阶段。
 
 ## 1. 目标与本轮决策
+
+2026-11-14 Git 管理决策：用户选择本地直接 `git clone / pull / push` Overleaf 项目。优先复用官方公开的 MIT Java/JGit Git Bridge，在当前 CE 上补齐个人 Git token、Snapshot API、项目版本检查及可恢复的多文件写入；首版单分支 `main`，保留原账号和实时协作。GitHub 可作为本地第二个 remote，不依赖 GitHub App。现有 MCP 继续提供实时工具、编译和日志。先在 m701 独立环境验证 clone/pull，再验证浏览器并发编辑下的 push 与中断恢复，最后完成原生 Git 弹窗并提供预览。完整范围与阶段见 [Git remote design](git-remote-design.md)，官方接口与复用依据见 [Git integration reference](git-integration-reference.md)。本次仅设计，未修改生产。
 
 2026-11-14 MCP 文件接口：个人 HTTP MCP 增加 `overleaf_create_file` 和 `overleaf_delete_file`，沿用当前用户身份、grant 的 edit 范围与实时项目权限。新建支持 UTF-8 可编辑文档（最大 2 MB）和 Base64 附件（最大 50 MB，包含 JPG/PNG/SVG/PDF），HTTP 请求上限为 72 MiB，不覆盖同名实体；删除按文件 ID + 当前绝对路径操作单个文档或附件。目录列表及父目录 ID 纳入项目树返回。复用原生结构锁、历史及广播，写入记录 operationId 并拒绝自动重放；暂不新增目录管理、移动或重命名工具。验证在 m701 隔离 Compose 中进行，生产部署单独推进。
 

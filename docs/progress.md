@@ -1,5 +1,11 @@
 # Development progress
 
+## Direct Git remote design (2026-11-14)
+
+The user selected local `git clone / pull / push` against Overleaf projects as the first Git milestone. The [design](git-remote-design.md) proposes reusing the public MIT Java/JGit bridge, adding native CE token/snapshot interfaces, and retaining MCP for compilation and live editing. GitHub can be a separate local remote without GitHub App setup. The [reference](git-integration-reference.md) pins official-source evidence and records the API contracts.
+
+Read-only inspection of the current m701 runtime confirmed that native document-updater `blockProject` refuses already-loaded projects; it cannot freeze active editor writes. The first write prototype therefore needs a project-wide revision/barrier and recovery path, beyond the existing per-document MCP CAS and structure lock. No Git service was built, started or deployed in this task; this entry records a proposal. Documentation links and whitespace were checked; runtime tests are reserved for the prototype.
+
 ## Production MCP file-tools rollout (2026-11-14)
 
 Promoted source **`e3e47eb`** to production through GitOps commit **`51d1a1e1211c90ab08d1b8c08e5b10af4b407937`**. Argo reports **Synced / Healthy**, with automated prune/self-heal preserved. The application now uses `harbor.clusters.zjusct.io/library/overleaf-agent@sha256:2202df8f84e254065f648729a087f9e06cc57847c76e4a39c047191e52a0536e`.

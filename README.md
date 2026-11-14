@@ -135,6 +135,8 @@ Run `npm run smoke:files` with `OVERLEAF_LAB_ORIGIN` set to the isolated loopbac
 
 Account Settings includes an optional GitHub App connection for existing users. Users confirm the GitHub username before linking and can disconnect it later. Email login and projects are preserved; repository sync is planned separately. See [GitHub App setup](docs/github-app-setup.md) for registration, callback, secret configuration and deployment checks.
 
+Direct project Git access (`clone`, `pull`, `push`) is the next proposed milestone. See the [Git remote design](docs/git-remote-design.md) and [official integration research](docs/git-integration-reference.md). The Git endpoint is not implemented yet; this workflow will not require GitHub account linking.
+
 ## Sidebar transport and persistence
 
 The connector launches its locally configured Agent using ACP v1 over stdio. It opens an outbound SSE command stream to `/agent-bridge/connect` and posts results to `/agent-bridge/events`; the browser receives authenticated session snapshots over SSE and uses native CSRF-protected POST routes. This reuses the existing HTTP port without inbound access to the user’s device. The native HTTP MCP URL remains the document-tool channel.
