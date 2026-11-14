@@ -9,6 +9,10 @@ const client = new Client({ name: "overleaf-agent-smoke", version: "0.1.0" });
 const transport = new StdioClientTransport({
   command: process.execPath,
   args: ["--import", "tsx", "src/server.ts"],
+  env: {
+    OVERLEAF_AGENT_CONFIG:
+      process.env.OVERLEAF_AGENT_CONFIG ?? ".local/client.json",
+  },
   stderr: "inherit",
 });
 try {

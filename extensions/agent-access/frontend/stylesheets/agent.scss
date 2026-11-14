@@ -262,7 +262,8 @@ body:has(#agent-page-root) {
   }
 }
 .agent-connect-modal,
-.agent-conversations-modal {
+.agent-conversations-modal,
+.git-access-modal {
   details code {
     color: inherit;
     overflow-wrap: anywhere;
@@ -289,6 +290,9 @@ body:has(#agent-page-root) {
     --bs-table-bg: var(--bg-primary-themed);
     --bs-table-color: var(--content-primary-themed);
   }
+}
+.git-access-modal code {
+  color: inherit;
 }
 .agent-conversations-modal {
   .agent-conversation-list {

@@ -104,7 +104,14 @@ function GitDialog({
     ? `git clone --origin overleaf -c credential.useHttpPath=true ${cloneUrl}`
     : "";
   return (
-    <OLModal show onHide={onHide} themed size="lg">
+    <OLModal
+      show
+      onHide={onHide}
+      themed
+      size="lg"
+      className="git-access-modal"
+      scrollable
+    >
       <OLModalHeader>
         <OLModalTitle>Git access</OLModalTitle>
       </OLModalHeader>
@@ -144,6 +151,7 @@ function GitDialog({
                 <OLFormGroup controlId="git-clone-command">
                   <OLFormLabel>Clone command</OLFormLabel>
                   <OLFormControl
+                    type="text"
                     readOnly
                     value={command}
                     onFocus={(e) => e.target.select()}
@@ -163,6 +171,7 @@ function GitDialog({
                   <OLFormGroup controlId="git-token-name">
                     <OLFormLabel>Token name</OLFormLabel>
                     <OLFormControl
+                      type="text"
                       value={name}
                       maxLength={80}
                       onChange={(e) => setName(e.target.value)}
@@ -206,6 +215,7 @@ function GitDialog({
                     <OLFormGroup controlId="git-new-token">
                       <OLFormLabel>New Git token</OLFormLabel>
                       <OLFormControl
+                        type="text"
                         readOnly
                         value={token.token}
                         autoComplete="off"
