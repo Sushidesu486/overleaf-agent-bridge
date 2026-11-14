@@ -12,6 +12,7 @@ import AuthenticationManager from "../../app/src/Features/Authentication/Authent
 import AuthenticationController from "../../app/src/Features/Authentication/AuthenticationController.mjs";
 import SessionManager from "../../app/src/Features/Authentication/SessionManager.mjs";
 import { createAccessService, AccessError, digest } from "./auth.mjs";
+import { applyGitHubRoutes, githubMiddleware } from "./github.mjs";
 
 const enabled = process.env.SITE_SELF_REGISTRATION === "true";
 Settings.siteAccess = { registration: enabled };
@@ -185,6 +186,7 @@ function guard(handler, page) {
 
 export const router = {
   apply(webRouter) {
+    applyGitHubRoutes(webRouter);
     for (const path of ["/register", "/signup/verify", "/site-access.js"])
       AuthenticationController.addEndpointToLoginWhitelist(path);
     webRouter.get("/site-access.js", (_req, res) =>
@@ -234,4 +236,4 @@ export const router = {
   },
 };
 
-export default { router };
+export default { router, appMiddleware: githubMiddleware };

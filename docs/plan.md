@@ -4,6 +4,8 @@
 
 ## 1. 目标与本轮决策
 
+2026-11-14 GitHub 关联决策：采用组织维护的 GitHub App。现有用户先用邮箱登录，再在 Account Settings 授权并确认 GitHub 身份；保留现有账号 ID、邮箱、密码、项目与 MCP 授权。首阶段仅做绑定、重复绑定检测和解绑，不进行自动邮箱合并、开放注册或替换登录方式。仓库安装授权及同步后续独立实现；当前不申请仓库权限、不持久化 GitHub token。应用尚未创建，先完成代码与隔离预览，配置及上线步骤见 [GitHub App setup](github-app-setup.md)。
+
 2026-11-12 用户选择 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 作为网页助手的服务端运行时，替代要求普通用户安装并常驻本地 Node 连接器的默认流程。保留 Overleaf 原生侧栏，登录后由服务端建立个人项目会话；个人 MCP 链接继续供外部 Agent 使用。此前“队内公用 token 托管方案不实施”的决定属于 11 月 6 日阶段，本轮重新推进托管方向，模型 endpoint、model 与凭据在服务端配置。
 
 接口核验（2026-11-12，官方仓库文档）：DSH 的 [`acp` profile](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/acp/acp/README.md) 提供 stdio ACP v1、HTTP MCP 挂载、独立 session、持久化 resume、取消和权限请求；与现有 `AcpRuntime` 的主要能力相符。ACP 为受信任程序控制接口，认证方法直接成功，因此仅由内部 worker 调用，网页登录、用户与项目鉴权继续由 Overleaf 承担。它输出标准语义更新，侧栏回复呈现粒度需用真实运行时验证。官方标记为 developer preview，部署固定验证过的版本和依赖；调研时源码根 package 为 `0.2.2-rc.2`、Node 要求 `>=24.9.0`，尚未选定部署版本。

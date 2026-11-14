@@ -46,6 +46,8 @@ services:
     environment:
       OVERLEAF_APP_NAME: OverLeaf@ZJUSCT
       OVERLEAF_SITE_URL: http://localhost:18080
+      GITHUB_APP_CLIENT_ID: ${GITHUB_APP_CLIENT_ID:-}
+      GITHUB_APP_CLIENT_SECRET: ${GITHUB_APP_CLIENT_SECRET:-}
       OVERLEAF_HEADER_EXTRAS: '[{"text":"My Agent","url":"/user/agent","class":"subdued"}]'
       OVERLEAF_MONGO_URL: mongodb://mongo:27017/sharelatex?replicaSet=overleaf
       OVERLEAF_REDIS_HOST: redis

@@ -48,6 +48,14 @@ replace(toolbar, '<span className="toolbar-ol-logo" aria-label={t(\'overleaf_log
 replace('frontend/stylesheets/main-style.scss', "@import 'ciam/all';",
         "@import 'ciam/all';\n@import '../../modules/site-access/public/site';")
 
+replace('frontend/js/features/settings/components/root.tsx',
+        "import LinkingSection from './linking-section'",
+        "import LinkingSection from './linking-section'\n"
+        "import GitHubAccount from '../../../../../modules/agent-access/frontend/js/components/github-account'")
+replace('frontend/js/features/settings/components/root.tsx',
+        '          </SSOProvider>\n',
+        '          </SSOProvider>\n          <GitHubAccount />\n')
+
 # Native CE loads adjacent precompiled JS before consulting the Pug source.
 # These two templates must be compiled from the updated source at boot.
 for name in ['app/views/user/login.js', 'app/views/user/register.js']:

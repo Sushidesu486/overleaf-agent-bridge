@@ -120,6 +120,10 @@ Link digests and scoped grants live in the application's `agent_grants` collecti
 
 To rebuild after changes, run `npm run build:extension`, `npm run build:connector`, `docker compose build overleaf`, then `docker compose up -d --no-deps --wait overleaf`. Stop without removing data using `docker compose stop`. Roll back to the pinned upstream image in `Dockerfile` to disable the extension while preserving project data and dormant grant collections.
 
+## GitHub account linking
+
+Account Settings includes an optional GitHub App connection for existing users. Users confirm the GitHub username before linking and can disconnect it later. Email login and projects are preserved; repository sync is planned separately. See [GitHub App setup](docs/github-app-setup.md) for registration, callback, secret configuration and deployment checks.
+
 ## Sidebar transport and persistence
 
 The connector launches its locally configured Agent using ACP v1 over stdio. It opens an outbound SSE command stream to `/agent-bridge/connect` and posts results to `/agent-bridge/events`; the browser receives authenticated session snapshots over SSE and uses native CSRF-protected POST routes. This reuses the existing HTTP port without inbound access to the user’s device. The native HTTP MCP URL remains the document-tool channel.
