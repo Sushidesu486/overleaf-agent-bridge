@@ -54,7 +54,15 @@ async function call(
     undefined,
     { timeout: 120_000 },
   );
-  const value = JSON.parse((result.content as Array<{ text: string }>)[0].text);
+  const text = (result.content as Array<{ text: string }>)[0].text;
+  // The SDK rejects schema violations before the adapter's JSON error handler.
+  if (
+    expectedError === "INVALID_INPUT" &&
+    result.isError &&
+    text.startsWith("MCP error -32602: Input validation error:")
+  )
+    return { code: "INVALID_INPUT" };
+  const value = JSON.parse(text);
   if (expectedError) {
     assert.ok(result.isError, `Expected ${expectedError}`);
     assert.equal(value.code, expectedError);

@@ -4,7 +4,7 @@
 
 ## 1. 目标与本轮决策
 
-2026-11-15 MCP 创建目录：新增 `overleaf_create_folder`，支持根目录或指定 `parentFolderId` 下单层创建，返回目录 ID 供创建文件/子目录使用；沿用 edit 授权、当前项目权限、原生结构锁、操作 UUID、dryRun 和不确定结果不重放规则。同名文件/目录报冲突，不递归创建或删除目录。先在 m700 隔离环境验证，生产部署独立推进。
+2026-11-15 MCP 创建目录：新增 `overleaf_create_folder`，支持根目录或指定 `parentFolderId` 下单层创建，返回目录 ID 供创建文件/子目录使用；沿用 edit 授权、当前项目权限、原生结构锁、操作 UUID、dryRun 和不确定结果不重放规则。同名文件/目录报冲突，不递归创建或删除目录。已在 m700 隔离环境通过真实 MCP 创建目录/文件及编译验证，生产部署独立推进。
 
 2026-11-15 Git 进度：用户授权改在 m700 开发；只读 clone/pull、50 MB 附件、个人 token 管理和原生明暗主题已通过真实 CE 验证。共享 NFS 开发工作区为 `/home/shouss/projects/overleaf-git-dev`；下一阶段实现可恢复 push，当前写入保持关闭，生产未启用 Git。详见 [Git preview](git-preview.md)。
 

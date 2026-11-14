@@ -1,5 +1,15 @@
 # Development progress
 
+## MCP folder creation (2026-11-15)
+
+Added `overleaf_create_folder` to the personal HTTP MCP (ten tools). It creates one root-level or nested directory using an optional `parentFolderId`, returns `result.folderId` for child folders/files, and accepts Unicode names. Existing `edit` grants and current project write permissions apply; no grant migration is needed. Dry runs return target metadata without creating a directory or reserving an operation. Submitted operations use the existing UUID journal and are not replayed after uncertain results.
+
+The adapter validates parent membership, native names/path length and collisions with both files and folders under `sequentialProjectStructureUpdateLock`. It calls the pinned native `addFolder.withoutLock` and emits `reciveNewFolder` with the native argument order and authenticated human ID. Empty folders retain native Overleaf behavior; no new History attribution mechanism or recursive directory deletion was added.
+
+Validation: typecheck and build passed; 75 local tests passed, eight optional database tests skipped. Standards review: zero actionable findings; Spec review: zero actionable findings. The real m700 HTTP MCP smoke passed root/nested/Chinese directories, creating and reading files inside them, dry runs, replay denial, invalid-name and foreign-parent rejection, file/folder name conflicts, concurrent same-name creation and read-only/project-scope denial. Existing file creation/deletion, Agent history labels, 50,000,000-byte binary hashes, SVG attachments and compilation also passed. The smoke helper now recognizes the SDK's standard `-32602` validation response before the adapter JSON handler.
+
+Runtime code: `728bca0`. Isolated image `overleaf-git-check:m700-folders`, manifest-list digest `sha256:2b9ec5530f179ad80fe84f696154a89180d75f4f49eedbdf6ebb7d1a0bd271be` (platform manifest `sha256:0a98c6a6b097930c8f5959739a117295c97facc488add8de45a5e2a7e3ab6865`). The CE 6.3.2 base/runtime revision and native entity/controller hashes match the inspected source. Native webpack and Docker builds passed. The existing m700 isolated lab runs this image on loopback 18084; production has not been updated. After deployment, clients refresh their MCP tools or reconnect to discover the new interface.
+
 ## Direct Git read-only milestone (2026-11-15)
 
 The optional CE Git module, personal scoped tokens, immutable native history export and official Java/JGit bridge now pass real clone/pull against an isolated CE instance on m700. Verified unchanged fetches, MCP edit → pull, Chinese text, 50 MB binary SHA-256, current membership/project scope and token revocation. Push remains disabled pending the planned multi-file barrier and recovery implementation.
