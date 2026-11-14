@@ -38,6 +38,8 @@ function fixture() {
         assert.deepEqual(await readFile(uploadPath), Buffer.from([0, 1, 255]));
         return { fileRef: { _id: "new-file" } };
       }
+      if (kind === "folder")
+        return { folder: { _id: "new-folder", name: args[2] } };
       return { doc: { _id: "new-doc" } };
     },
   });
@@ -55,6 +57,7 @@ function fixture() {
       promises: {
         addDocWithRanges: native("doc"),
         addFile: native("file"),
+        addFolder: native("folder"),
         deleteEntity: native("delete"),
       },
     },
@@ -101,6 +104,56 @@ const createArgs = {
   dryRun: false,
 };
 const deleteArgs = { fileId: "d", expectedPath: "/main.tex", dryRun: false };
+
+test("folders use native structure locking, user identity and realtime notifications", async () => {
+  const f = fixture();
+  const args = { parentFolderId: null, name: "章节", dryRun: true };
+  const preview = await f.backend.createFolder("p", "user", args, f.authorize);
+  assert.deepEqual(preview, {
+    name: "章节",
+    path: "/章节/",
+    parentFolderId: "r",
+    type: "folder",
+  });
+  assert.equal(f.calls.length, 0);
+  const created = await f.backend.createFolder(
+    "p",
+    "user",
+    { ...args, parentFolderId: "nested", dryRun: false },
+    f.authorize,
+  );
+  assert.equal(created.folderId, "new-folder");
+  assert.equal(created.path, "/sections/章节/");
+  assert.deepEqual(f.calls[0].args, ["p", "nested", "章节", "user"]);
+  assert.deepEqual(f.events[0], [
+    "p",
+    "reciveNewFolder",
+    "nested",
+    { _id: "new-folder", name: "章节" },
+    "user",
+  ]);
+  for (const extra of [{ name: "main.tex" }, { name: "sections" }])
+    await assert.rejects(
+      f.backend.createFolder("p", "user", { ...args, ...extra }, f.authorize),
+      { code: "NAME_CONFLICT" },
+    );
+  await assert.rejects(
+    f.backend.createFolder(
+      "p",
+      "user",
+      { ...args, parentFolderId: "foreign" },
+      f.authorize,
+    ),
+    { code: "NOT_FOUND" },
+  );
+  f.setOnLock(() =>
+    f.project.rootFolder[0].docs.push({ _id: "raced", name: "章节" }),
+  );
+  await assert.rejects(f.backend.createFolder("p", "user", args, f.authorize), {
+    code: "NAME_CONFLICT",
+  });
+  assert.equal(f.calls.length, 1);
+});
 
 test("file paths and native events retain folder IDs and the human agent attribution", async () => {
   const f = fixture();

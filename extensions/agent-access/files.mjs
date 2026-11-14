@@ -53,7 +53,79 @@ export function createFileBackend({
     if (!project) throw new AgentError("NOT_FOUND", "Project not found", 404);
     return { project, ...projectFileTree(project) };
   };
+  function createTarget(
+    { rootFolderId, folders, entries },
+    parentId,
+    name,
+    kind,
+  ) {
+    const parentFolderId = parentId ?? rootFolderId;
+    const parent = folders.find((folder) => folder.id === parentFolderId);
+    if (!parent)
+      throw new AgentError(
+        "NOT_FOUND",
+        "This parent folder does not belong to the project",
+        404,
+      );
+    const path = parent.path + name + (kind === "folder" ? "/" : "");
+    if (
+      !SafePath.isCleanFilename(name) ||
+      SafePath.isBlockedFilename(name) ||
+      !SafePath.isAllowedLength(path)
+    )
+      throw new AgentError(
+        "INVALID_NAME",
+        "The name or resulting path is not valid",
+      );
+    if (
+      [...entries, ...folders].some(
+        (item) => item.parentFolderId === parentFolderId && item.name === name,
+      )
+    )
+      throw new AgentError(
+        "NAME_CONFLICT",
+        "A file or folder with this name already exists",
+        409,
+      );
+    return { name, path, parentFolderId };
+  }
   return {
+    async createFolder(projectId, userId, args, authorize) {
+      return locked(projectId, async () => {
+        const preview = {
+          ...createTarget(
+            await load(projectId),
+            args.parentFolderId,
+            args.name,
+            "folder",
+          ),
+          type: "folder",
+        };
+        const { parentFolderId } = preview;
+        await authorize();
+        if (args.dryRun) return preview;
+        const { folder } =
+          await ProjectEntityUpdateHandler.promises.addFolder.withoutLock(
+            projectId,
+            parentFolderId,
+            args.name,
+            userId,
+          );
+        // Match the native folder event; unlike file events, it has no source slot.
+        EditorRealTimeController.emitToRoom(
+          projectId,
+          "reciveNewFolder",
+          parentFolderId,
+          folder,
+          userId,
+        );
+        return {
+          ...preview,
+          id: String(folder._id),
+          folderId: String(folder._id),
+        };
+      });
+    },
     async createFile(projectId, userId, args, authorize) {
       let directory;
       try {
@@ -67,37 +139,14 @@ export function createFileBackend({
           );
         }
         return await locked(projectId, async () => {
-          const { project, rootFolderId, folders, entries } =
-            await load(projectId);
-          const folderId = args.folderId ?? rootFolderId;
-          const folder = folders.find((f) => f.id === folderId);
-          if (!folder)
-            throw new AgentError(
-              "NOT_FOUND",
-              "This folder does not belong to the project",
-              404,
-            );
-          const path = folder.path + args.name;
-          if (
-            !SafePath.isCleanFilename(args.name) ||
-            SafePath.isBlockedFilename(args.name) ||
-            !SafePath.isAllowedLength(path)
-          )
-            throw new AgentError(
-              "INVALID_NAME",
-              "The filename or resulting path is not valid",
-            );
-          if (
-            [...entries, ...folders].some(
-              (item) =>
-                item.parentFolderId === folderId && item.name === args.name,
-            )
-          )
-            throw new AgentError(
-              "NAME_CONFLICT",
-              "A file or folder with this name already exists",
-              409,
-            );
+          const tree = await load(projectId);
+          const { project } = tree;
+          const { path, parentFolderId: folderId } = createTarget(
+            tree,
+            args.folderId,
+            args.name,
+            "file",
+          );
           if (
             args.encoding === "utf8" &&
             !(project.overleaf?.history?.otMigrationStage > 0) &&

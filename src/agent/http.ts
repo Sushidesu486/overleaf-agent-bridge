@@ -9,6 +9,7 @@ import {
   objectId,
   compileLogInput,
   createFileInput,
+  createFolderInput,
   deleteFileInput,
   maxMcpRequestBytes,
 } from "./service.js";
@@ -82,6 +83,11 @@ export async function handleMcp(
         editInput.shape,
       ],
       [
+        "overleaf_create_folder",
+        "Create one folder in the project root or an existing parentFolderId from a fresh project tree. Use a single name, not a path. Returns folderId for creating files or further subfolders. Existing file or folder names are never overwritten. Requires edit access. Use a fresh UUID operationId; dryRun validates without writing. Refresh the tree after unknown results; do not replay.",
+        createFolderInput.shape,
+      ],
+      [
         "overleaf_create_file",
         "Create a file without overwriting an existing name. Use utf8 for editable text (.tex, .bib), limited to 2 MB. Use base64 for attachments (JPG, PNG, SVG, PDF), limited to 50 MB decoded; upload SVG as an attachment even though its source is text. folderId defaults to the root; obtain nested folder IDs from the project tree. Use a fresh UUID operationId; dryRun validates without writing. Refresh the tree after unknown results; do not replay.",
         createFileInput.shape,
@@ -112,6 +118,7 @@ export async function handleMcp(
             readOnlyHint: ![
               "overleaf_edit_document",
               "overleaf_create_file",
+              "overleaf_create_folder",
               "overleaf_delete_file",
               "overleaf_compile",
             ].includes(name),

@@ -58,6 +58,9 @@ function fixture() {
     },
   };
   const backend: Backend = {
+    async createFolder() {
+      return {};
+    },
     async createFile() {
       return {};
     },
@@ -209,7 +212,18 @@ test("real HTTP MCP client uses only its URL; origin checks and revocation apply
   const client = new Client({ name: "fixture", version: "1" });
   t.after(() => client.close());
   await client.connect(new StreamableHTTPClientTransport(url));
-  assert.equal((await client.listTools()).tools.length, 9);
+  const tools = (await client.listTools()).tools;
+  assert.equal(tools.length, 10);
+  assert.equal(
+    tools.find((t) => t.name === "overleaf_create_folder")?.annotations
+      ?.readOnlyHint,
+    false,
+  );
+  const folder = await client.callTool({
+    name: "overleaf_create_folder",
+    arguments: { projectId, name: "sections", operationId: randomUUID() },
+  });
+  assert.ok(!folder.isError);
   const result = await client.callTool({
     name: "overleaf_whoami",
     arguments: {},
@@ -295,6 +309,55 @@ test("compile-log reads require current project access, bind identity, and reche
   );
 });
 
+test("folder creation supports root/nested targets, dry runs and write journaling", async () => {
+  const f = fixture();
+  const credential = key((await f.service.issue("alice", {})).url);
+  let received: unknown;
+  f.backend.createFolder = async (_project, user, args, authorize) => {
+    await authorize();
+    assert.equal(user, "alice");
+    received = args.parentFolderId;
+    return { id: docId, folderId: docId, path: "/章节/", type: "folder" };
+  };
+  const args = { projectId, name: "章节", operationId: randomUUID() };
+  await f.service.execute(credential, "overleaf_create_folder", {
+    ...args,
+    dryRun: true,
+  });
+  assert.equal(received, null);
+  assert.equal(f.operations.size, 0);
+  await f.service.execute(credential, "overleaf_create_folder", {
+    ...args,
+    parentFolderId: docId,
+  });
+  assert.equal(received, docId);
+  assert.equal([...f.operations.values()][0].kind, "create_folder");
+  assert.equal([...f.operations.values()][0].parentFolderId, docId);
+  await assert.rejects(
+    f.service.execute(credential, "overleaf_create_folder", args),
+    { code: "OPERATION_ALREADY_SUBMITTED" },
+  );
+  for (const name of [
+    "../outside",
+    "a/b",
+    "a\\b",
+    "__proto__",
+    "constructor",
+    " a",
+    "",
+    ".",
+    "..",
+  ])
+    await assert.rejects(
+      f.service.execute(credential, "overleaf_create_folder", {
+        ...args,
+        name,
+        operationId: randomUUID(),
+      }),
+    );
+  assert.equal(f.operations.size, 1);
+});
+
 test("file tools enforce edit grants, project scope and current write permission", async () => {
   const f = fixture();
   const readOnly = await f.service.issue("alice", {
@@ -303,6 +366,7 @@ test("file tools enforce edit grants, project scope and current write permission
   });
   const editor = await f.service.issue("alice", { projects: [projectId] });
   for (const [tool, args] of [
+    ["overleaf_create_folder", { name: "sections" }],
     ["overleaf_create_file", { name: "part.tex", content: "text" }],
     ["overleaf_delete_file", { fileId: docId, expectedPath: "/main.tex" }],
   ] as const) {
@@ -425,37 +489,49 @@ test("attachments accept the 50 MB boundary while editable text stays at 2 MB", 
   assert.equal(submitted, 2);
 });
 
-test("file operations preserve uncertain outcomes and block replays across tools", async () => {
-  const f = fixture();
-  const credential = key((await f.service.issue("alice", {})).url);
-  const operationId = randomUUID();
-  let submissions = 0;
-  f.backend.createFile = async () => {
-    submissions++;
-    throw new Error("connection lost after submission");
-  };
-  await assert.rejects(
-    f.service.execute(credential, "overleaf_create_file", {
-      projectId,
-      name: "part.tex",
-      operationId,
-    }),
-  );
-  assert.equal([...f.operations.values()][0].state, "unknown");
-  await assert.rejects(
-    f.service.execute(credential, "overleaf_delete_file", {
-      projectId,
-      fileId: docId,
-      expectedPath: "/part.tex",
-      operationId,
-    }),
-    /already been submitted/,
-  );
-  assert.equal(submissions, 1);
+test("file and folder operations preserve uncertain outcomes and block replays across tools", async () => {
+  for (const mutation of ["createFile", "createFolder"] as const) {
+    const f = fixture();
+    const credential = key((await f.service.issue("alice", {})).url);
+    const operationId = randomUUID();
+    let submissions = 0;
+    f.backend[mutation] = async () => {
+      submissions++;
+      throw new Error("connection lost after submission");
+    };
+    await assert.rejects(
+      f.service.execute(
+        credential,
+        mutation === "createFile"
+          ? "overleaf_create_file"
+          : "overleaf_create_folder",
+        {
+          projectId,
+          name: "part.tex",
+          operationId,
+        },
+      ),
+    );
+    assert.equal([...f.operations.values()][0].state, "unknown");
+    await assert.rejects(
+      f.service.execute(credential, "overleaf_delete_file", {
+        projectId,
+        fileId: docId,
+        expectedPath: "/part.tex",
+        operationId,
+      }),
+      /already been submitted/,
+    );
+    assert.equal(submissions, 1);
+  }
 });
 
-test("file creation and deletion reauthorize after backend preparation", async () => {
-  for (const mutation of ["createFile", "deleteFile"] as const) {
+test("file and folder mutations reauthorize after backend preparation", async () => {
+  for (const mutation of [
+    "createFile",
+    "createFolder",
+    "deleteFile",
+  ] as const) {
     const f = fixture();
     const issued = await f.service.issue("alice", {});
     let written = false;
@@ -469,11 +545,13 @@ test("file creation and deletion reauthorize after backend preparation", async (
         key(issued.url),
         mutation === "createFile"
           ? "overleaf_create_file"
-          : "overleaf_delete_file",
+          : mutation === "createFolder"
+            ? "overleaf_create_folder"
+            : "overleaf_delete_file",
         {
           projectId,
           operationId: randomUUID(),
-          ...(mutation === "createFile"
+          ...(mutation !== "deleteFile"
             ? { name: "part.tex" }
             : { fileId: docId, expectedPath: "/part.tex" }),
         },

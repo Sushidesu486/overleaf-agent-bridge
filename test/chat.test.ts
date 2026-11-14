@@ -49,6 +49,9 @@ function fixture() {
     async finish() {},
   };
   const backend: Backend = {
+    async createFolder() {
+      return {};
+    },
     async createFile() {
       return {};
     },

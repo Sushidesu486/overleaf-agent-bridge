@@ -65,7 +65,7 @@ const op = () => ({ operationId: randomUUID() });
 try {
   const client = await connect();
   const tools = (await client.listTools()).tools;
-  assert.equal(tools.length, 9);
+  assert.equal(tools.length, 10);
   assert.equal(
     tools.find((t) => t.name === "overleaf_delete_file")?.annotations
       ?.destructiveHint,
@@ -79,13 +79,96 @@ try {
         f.id === original.rootFolderId && f.path === "/",
     ),
   );
-  const folder = await browser.json(`/project/${projectId}/folder`, {
-    name: "sections",
-    parent_folder_id: original.rootFolderId,
+  const folderArgs = { name: "sections", ...op() };
+  const folderPreview = await call(client, "overleaf_create_folder", {
+    ...folderArgs,
+    dryRun: true,
   });
+  assert.equal(folderPreview.result.path, "/sections/");
+  assert.equal((await tree()).folders.length, original.folders.length);
+  const folder = (await call(client, "overleaf_create_folder", folderArgs))
+    .result;
+  assert.equal(folder.parentFolderId, original.rootFolderId);
+  await call(
+    client,
+    "overleaf_create_folder",
+    folderArgs,
+    "OPERATION_ALREADY_SUBMITTED",
+  );
+  await call(
+    client,
+    "overleaf_create_folder",
+    { name: "sections", ...op() },
+    "NAME_CONFLICT",
+  );
+  await call(
+    client,
+    "overleaf_create_folder",
+    { name: "main.tex", ...op() },
+    "NAME_CONFLICT",
+  );
+  await call(
+    client,
+    "overleaf_create_folder",
+    { name: "foreign", parentFolderId: "aaaaaaaaaaaaaaaaaaaaaaaa", ...op() },
+    "NOT_FOUND",
+  );
+  await call(
+    client,
+    "overleaf_create_folder",
+    { name: "../outside", ...op() },
+    "INVALID_INPUT",
+  );
+  const nested = (
+    await call(client, "overleaf_create_folder", {
+      name: "资料",
+      parentFolderId: folder.folderId,
+      ...op(),
+    })
+  ).result;
+  assert.equal(nested.path, "/sections/资料/");
+  const nestedFile = (
+    await call(client, "overleaf_create_file", {
+      name: "notes.tex",
+      folderId: nested.folderId,
+      content: "% 中文目录中的文件\n",
+      ...op(),
+    })
+  ).result;
+  assert.equal(nestedFile.path, "/sections/资料/notes.tex");
+  assert.equal(
+    (await call(client, "overleaf_read_document", { docId: nestedFile.id }))
+      .content,
+    "% 中文目录中的文件\n",
+  );
+  const racedFolders = await Promise.all(
+    [1, 2].map(() =>
+      client.callTool({
+        name: "overleaf_create_folder",
+        arguments: { projectId, name: "concurrent-folder", ...op() },
+      }),
+    ),
+  );
+  assert.equal(racedFolders.filter((result) => !result.isError).length, 1);
+  assert.equal(
+    JSON.parse(
+      (
+        racedFolders.find((result) => result.isError)!.content as Array<{
+          text: string;
+        }>
+      )[0].text,
+    ).code,
+    "NAME_CONFLICT",
+  );
+  assert.equal(
+    (await tree()).folders.filter(
+      (f: { name: string }) => f.name === "concurrent-folder",
+    ).length,
+    1,
+  );
   const args = {
     name: "part.tex",
-    folderId: folder._id,
+    folderId: folder.folderId,
     content: "% 中文内容\r\n\\section{MCP files}\nCreated through MCP.\n",
     ...op(),
   };
@@ -94,7 +177,7 @@ try {
     dryRun: true,
   });
   assert.equal(preview.result.path, "/sections/part.tex");
-  assert.equal((await tree()).entries.length, original.entries.length);
+  assert.equal((await tree()).entries.length, original.entries.length + 1);
   const created = (await call(client, "overleaf_create_file", args)).result;
   assert.equal(created.type, "document");
   const doc = await call(client, "overleaf_read_document", {
@@ -228,6 +311,18 @@ try {
   const readOnly = await connect(["read"]);
   await call(
     readOnly,
+    "overleaf_create_folder",
+    { name: "denied", ...op() },
+    "OUTSIDE_GRANT",
+  );
+  await call(
+    client,
+    "overleaf_create_folder",
+    { projectId: "aaaaaaaaaaaaaaaaaaaaaaaa", name: "denied", ...op() },
+    "OUTSIDE_GRANT",
+  );
+  await call(
+    readOnly,
     "overleaf_create_file",
     { name: "denied.tex", ...op() },
     "OUTSIDE_GRANT",
@@ -247,7 +342,7 @@ try {
   await call(
     client,
     "overleaf_delete_file",
-    { fileId: folder._id, expectedPath: "/sections/", ...op() },
+    { fileId: folder.folderId, expectedPath: "/sections/", ...op() },
     "FOLDER_DELETE_UNSUPPORTED",
   );
   const deletion = { fileId: bib.id, expectedPath: bib.path, ...op() };
@@ -316,6 +411,8 @@ try {
       {
         projectId,
         tools: tools.length,
+        folders:
+          "root, nested, Unicode names, collision, dry run and replay checks passed",
         textAndBib: "read back",
         binaryBytes: bytes.length,
         binaryChecksum: "matched",

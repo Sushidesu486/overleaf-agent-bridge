@@ -29,7 +29,7 @@ export const createFileInput = z
           name.trim() === name &&
           ![".", "..", "prototype"].includes(name) &&
           !Object.prototype.hasOwnProperty.call(Object.prototype, name),
-        "Use a single valid filename",
+        "Use a single valid file or folder name",
       ),
     content: z
       .string()
@@ -38,6 +38,15 @@ export const createFileInput = z
     encoding: z.enum(["utf8", "base64"]).default("utf8"),
     operationId: z.string().uuid(),
     dryRun: z.boolean().default(false),
+  })
+  .strict();
+export const createFolderInput = z
+  .object({
+    projectId: objectId,
+    parentFolderId: objectId.nullable().default(null),
+    name: createFileInput.shape.name,
+    operationId: createFileInput.shape.operationId,
+    dryRun: createFileInput.shape.dryRun,
   })
   .strict();
 export const deleteFileInput = z
@@ -50,6 +59,7 @@ export const deleteFileInput = z
   })
   .strict();
 export type CreateFileInput = z.infer<typeof createFileInput>;
+export type CreateFolderInput = z.infer<typeof createFolderInput>;
 export type DeleteFileInput = z.infer<typeof deleteFileInput>;
 
 function prepareCreateFile(args: CreateFileInput) {
@@ -123,11 +133,12 @@ export type Operation = {
   grantId: string;
   userId: string;
   projectId: string;
-  kind?: "edit_document" | "create_file" | "delete_file";
+  kind?: "edit_document" | "create_file" | "create_folder" | "delete_file";
   docId?: string;
   beforeVersion?: number;
   fileId?: string;
   folderId?: string | null;
+  parentFolderId?: string | null;
   name?: string;
   expectedPath?: string;
   encoding?: string;
@@ -150,6 +161,12 @@ export interface Backend {
   projects(userId: string): Promise<Project[]>;
   privilege(userId: string, projectId: string): Promise<string | false>;
   tree(projectId: string): Promise<unknown>;
+  createFolder(
+    projectId: string,
+    userId: string,
+    args: CreateFolderInput,
+    authorize: () => Promise<void>,
+  ): Promise<unknown>;
   createFile(
     projectId: string,
     userId: string,
@@ -320,6 +337,7 @@ export class AgentService {
         capabilities: {
           editing: true,
           fileCreation: true,
+          folderCreation: true,
           fileDeletion: true,
           maxFileBytes,
           maxTextFileBytes,
@@ -336,6 +354,7 @@ export class AgentService {
     const required = [
       "overleaf_edit_document",
       "overleaf_create_file",
+      "overleaf_create_folder",
       "overleaf_delete_file",
     ].includes(name)
       ? "edit"
@@ -352,23 +371,39 @@ export class AgentService {
         403,
       );
     await this.checkPrivilege(user.id, projectId, required);
-    if (name === "overleaf_create_file" || name === "overleaf_delete_file") {
+    if (
+      name === "overleaf_create_file" ||
+      name === "overleaf_create_folder" ||
+      name === "overleaf_delete_file"
+    ) {
       const authorize = async () => {
         await this.authenticate(credential);
         await this.checkPrivilege(user.id, projectId, "edit");
       };
-      const creating = name === "overleaf_create_file";
-      const args = creating
-        ? createFileInput.parse(input)
-        : deleteFileInput.parse(input);
+      const kind =
+        name === "overleaf_create_folder"
+          ? "create_folder"
+          : name === "overleaf_create_file"
+            ? "create_file"
+            : "delete_file";
+      const args =
+        kind === "create_folder"
+          ? createFolderInput.parse(input)
+          : kind === "create_file"
+            ? createFileInput.parse(input)
+            : deleteFileInput.parse(input);
       const details =
-        "name" in args
+        "content" in args
           ? prepareCreateFile(args)
-          : { fileId: args.fileId, expectedPath: args.expectedPath };
+          : "parentFolderId" in args
+            ? { parentFolderId: args.parentFolderId, name: args.name }
+            : { fileId: args.fileId, expectedPath: args.expectedPath };
       const perform = () =>
-        "name" in args
+        "content" in args
           ? this.backend.createFile(projectId, user.id, args, authorize)
-          : this.backend.deleteFile(projectId, user.id, args, authorize);
+          : "parentFolderId" in args
+            ? this.backend.createFolder(projectId, user.id, args, authorize)
+            : this.backend.deleteFile(projectId, user.id, args, authorize);
       if (args.dryRun)
         return { dryRun: true, projectId, result: await perform() };
       const operationId = `${grant.id}:${args.operationId}`;
@@ -378,7 +413,7 @@ export class AgentService {
           grantId: grant.id,
           userId: user.id,
           projectId,
-          kind: creating ? "create_file" : "delete_file",
+          kind,
           ...details,
           state: "pending",
         }))

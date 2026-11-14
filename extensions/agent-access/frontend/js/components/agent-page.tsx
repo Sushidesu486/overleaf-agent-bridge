@@ -318,7 +318,7 @@ export function AgentSettings({
                   />
                   <OLFormCheckbox
                     id="edit"
-                    label="Edit, create and delete files"
+                    label="Edit, create and delete files; create folders"
                     checked={edit}
                     onChange={(e) => setEdit(e.target.checked)}
                   />
