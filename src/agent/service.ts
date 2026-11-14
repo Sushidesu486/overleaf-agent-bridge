@@ -11,6 +11,68 @@ export class AgentError extends Error {
   }
 }
 export const objectId = z.string().regex(/^[a-f0-9]{24}$/);
+export const maxFileBytes = 2_000_000;
+export const createFileInput = z
+  .object({
+    projectId: objectId,
+    folderId: objectId.nullable().default(null),
+    name: z
+      .string()
+      .min(1)
+      .max(149)
+      .refine(
+        (name) =>
+          !/[\/\\*\u0000-\u001f\u007f-\u009f\uD800-\uDFFF]/.test(name) &&
+          name.trim() === name &&
+          ![".", "..", "prototype"].includes(name) &&
+          !Object.prototype.hasOwnProperty.call(Object.prototype, name),
+        "Use a single valid filename",
+      ),
+    content: z.string().max(3_000_000).default(""),
+    encoding: z.enum(["utf8", "base64"]).default("utf8"),
+    operationId: z.string().uuid(),
+    dryRun: z.boolean().default(false),
+  })
+  .strict();
+export const deleteFileInput = z
+  .object({
+    projectId: objectId,
+    fileId: objectId,
+    expectedPath: z.string().min(2).max(1024).startsWith("/"),
+    operationId: z.string().uuid(),
+    dryRun: z.boolean().default(false),
+  })
+  .strict();
+export type CreateFileInput = z.infer<typeof createFileInput>;
+export type DeleteFileInput = z.infer<typeof deleteFileInput>;
+
+function prepareCreateFile(args: CreateFileInput) {
+  let bytes: Buffer;
+  if (args.encoding === "base64") {
+    bytes = Buffer.from(args.content, "base64");
+    if (bytes.toString("base64") !== args.content)
+      throw new AgentError(
+        "INVALID_BASE64",
+        "Use canonical Base64 without whitespace or a data URL prefix",
+      );
+  } else {
+    args.content = args.content.replace(/\r\n?/g, "\n");
+    if (/[\u0000\uD800-\uDFFF]/u.test(args.content))
+      throw new AgentError(
+        "INVALID_TEXT",
+        "Text must not contain NUL or incomplete Unicode characters",
+      );
+    bytes = Buffer.from(args.content, "utf8");
+  }
+  if (bytes.length > maxFileBytes)
+    throw new AgentError("FILE_TOO_LARGE", "The file exceeds the 2 MB limit");
+  return {
+    folderId: args.folderId,
+    name: args.name,
+    encoding: args.encoding,
+    contentDigest: createHash("sha256").update(bytes).digest("hex"),
+  };
+}
 export const compileLogInput = z
   .object({
     projectId: objectId,
@@ -47,8 +109,15 @@ export type Operation = {
   grantId: string;
   userId: string;
   projectId: string;
-  docId: string;
-  beforeVersion: number;
+  kind?: "edit_document" | "create_file" | "delete_file";
+  docId?: string;
+  beforeVersion?: number;
+  fileId?: string;
+  folderId?: string | null;
+  name?: string;
+  expectedPath?: string;
+  encoding?: string;
+  contentDigest?: string;
   state: string;
   result?: unknown;
 };
@@ -67,6 +136,18 @@ export interface Backend {
   projects(userId: string): Promise<Project[]>;
   privilege(userId: string, projectId: string): Promise<string | false>;
   tree(projectId: string): Promise<unknown>;
+  createFile(
+    projectId: string,
+    userId: string,
+    args: CreateFileInput,
+    authorize: () => Promise<void>,
+  ): Promise<unknown>;
+  deleteFile(
+    projectId: string,
+    userId: string,
+    args: DeleteFileInput,
+    authorize: () => Promise<void>,
+  ): Promise<unknown>;
   read(projectId: string, docId: string): Promise<Doc>;
   edit(
     projectId: string,
@@ -222,7 +303,13 @@ export class AgentService {
         user,
         connectionLabel: `${user.name}'s agent`,
         grant: publicGrant(grant),
-        capabilities: { editing: true, presenceLabel: false },
+        capabilities: {
+          editing: true,
+          fileCreation: true,
+          fileDeletion: true,
+          maxFileBytes,
+          presenceLabel: false,
+        },
       };
     if (name === "overleaf_list_projects") {
       const projects = await this.backend.projects(user.id);
@@ -231,12 +318,15 @@ export class AgentService {
       );
     }
     const { projectId } = z.object({ projectId: objectId }).parse(input);
-    const required =
-      name === "overleaf_edit_document"
-        ? "edit"
-        : name === "overleaf_compile"
-          ? "compile"
-          : "read";
+    const required = [
+      "overleaf_edit_document",
+      "overleaf_create_file",
+      "overleaf_delete_file",
+    ].includes(name)
+      ? "edit"
+      : name === "overleaf_compile"
+        ? "compile"
+        : "read";
     if (
       !grant.actions.includes(required) ||
       (grant.projects !== null && !grant.projects.includes(projectId))
@@ -247,6 +337,62 @@ export class AgentService {
         403,
       );
     await this.checkPrivilege(user.id, projectId, required);
+    if (name === "overleaf_create_file" || name === "overleaf_delete_file") {
+      const authorize = async () => {
+        await this.authenticate(credential);
+        await this.checkPrivilege(user.id, projectId, "edit");
+      };
+      const creating = name === "overleaf_create_file";
+      const args = creating
+        ? createFileInput.parse(input)
+        : deleteFileInput.parse(input);
+      const details =
+        "name" in args
+          ? prepareCreateFile(args)
+          : { fileId: args.fileId, expectedPath: args.expectedPath };
+      const perform = () =>
+        "name" in args
+          ? this.backend.createFile(projectId, user.id, args, authorize)
+          : this.backend.deleteFile(projectId, user.id, args, authorize);
+      if (args.dryRun)
+        return { dryRun: true, projectId, result: await perform() };
+      const operationId = `${grant.id}:${args.operationId}`;
+      if (
+        !(await this.store.begin({
+          id: operationId,
+          grantId: grant.id,
+          userId: user.id,
+          projectId,
+          kind: creating ? "create_file" : "delete_file",
+          ...details,
+          state: "pending",
+        }))
+      )
+        throw new AgentError(
+          "OPERATION_ALREADY_SUBMITTED",
+          "This operation has already been submitted. Refresh the project tree to confirm the result.",
+          409,
+        );
+      try {
+        const result = {
+          submitted: true,
+          projectId,
+          operationId: args.operationId,
+          result: await perform(),
+        };
+        await this.store.finish(operationId, "submitted", result);
+        return result;
+      } catch (error) {
+        const code =
+          error instanceof AgentError ? error.code : "RESULT_UNKNOWN";
+        await this.store.finish(
+          operationId,
+          code === "RESULT_UNKNOWN" ? "unknown" : "rejected",
+          { code },
+        );
+        throw error;
+      }
+    }
     if (name === "overleaf_get_project_tree")
       return this.backend.tree(projectId);
     if (name === "overleaf_compile")
@@ -305,6 +451,7 @@ export class AgentService {
         userId: user.id,
         projectId,
         docId,
+        kind: "edit_document",
         beforeVersion: doc.version,
         state: "pending",
       }))

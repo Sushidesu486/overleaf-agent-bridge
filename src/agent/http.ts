@@ -8,6 +8,8 @@ import {
   editInput,
   objectId,
   compileLogInput,
+  createFileInput,
+  deleteFileInput,
 } from "./service.js";
 export { AgentService, AgentError, publicGrant } from "./service.js";
 import { compileWorkflow } from "./compilation.js";
@@ -25,7 +27,7 @@ export function errorResponse(error: unknown) {
       : {
           code: "RESULT_UNKNOWN",
           message:
-            "The request could not be completed. For edits, read the document again to confirm the result.",
+            "The request could not be completed. Refresh the project tree and read affected documents to confirm the result. Do not replay an unconfirmed write.",
         };
 }
 export async function handleMcp(
@@ -65,7 +67,7 @@ export async function handleMcp(
       ],
       [
         "overleaf_get_project_tree",
-        "List documents, files, rootDocId and compiler settings in a project.",
+        "List documents, attachments, folders (including rootFolderId), paths, rootDocId and compiler settings in a project.",
         { projectId: objectId },
       ],
       [
@@ -77,6 +79,16 @@ export async function handleMcp(
         "overleaf_edit_document",
         "Replace one uniquely matching text span at the expected document version. Use a fresh UUID operationId. On unknown results, read again; do not replay.",
         editInput.shape,
+      ],
+      [
+        "overleaf_create_file",
+        "Create a file without overwriting an existing name. Use utf8 for editable text (.tex, .bib), base64 for attachments (images, PDF). Limit: 2 MB decoded. folderId defaults to the root; obtain nested folder IDs from the project tree. Use a fresh UUID operationId; dryRun validates without writing. Refresh the tree after unknown results; do not replay.",
+        createFileInput.shape,
+      ],
+      [
+        "overleaf_delete_file",
+        "Delete one document or attachment by fileId and its exact expectedPath from a fresh project tree. Deletion removes the current file, including edits since your last read; review it first. Folders are not supported. Use a fresh UUID operationId; dryRun previews without deleting. Refresh the tree after unknown results; do not replay.",
+        deleteFileInput.shape,
       ],
       [
         "overleaf_compile",
@@ -98,9 +110,11 @@ export async function handleMcp(
           annotations: {
             readOnlyHint: ![
               "overleaf_edit_document",
+              "overleaf_create_file",
+              "overleaf_delete_file",
               "overleaf_compile",
             ].includes(name),
-            destructiveHint: false,
+            destructiveHint: name === "overleaf_delete_file",
           },
         },
         async (args: unknown) => {
@@ -132,6 +146,7 @@ export async function handleMcp(
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,
+      maxRequestBodySize: 8 * 1024 * 1024,
     });
     res.on("close", () => {
       void server?.close();

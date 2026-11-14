@@ -73,11 +73,20 @@ Full links are shown only when generated. Keep them in personal client settings.
 | --- | --- |
 | `overleaf_whoami` | User identity, grant scope and capabilities; no credential. |
 | `overleaf_list_projects` | Projects allowed by both the link and the user's current permissions. |
-| `overleaf_get_project_tree` | Text-document and file IDs/paths, root document and compiler. |
+| `overleaf_get_project_tree` | Document/attachment IDs and paths, parent folders, `folders`, `rootFolderId`, root document and compiler. |
 | `overleaf_read_document` | Text, current version and OT type. |
 | `overleaf_edit_document` | Unique text replacement with expected version, operation UUID and optional dry-run. |
+| `overleaf_create_file` | Create UTF-8 text documents or Base64 attachments in the root or an existing folder; no overwrite, 2 MB decoded limit. |
+| `overleaf_delete_file` | Delete one document/attachment by ID and exact current path; optional dry-run, no recursive folder deletion. |
 | `overleaf_compile` | Build status, first error with file/document/line, warnings, compiler, log availability, next action and input-state metadata. |
 | `overleaf_get_compile_log` | Paginated `.log`/`.blg` from a specific MCP build by the same user; requires current project read access. |
+
+File creation and deletion require the link's `edit` action and current Overleaf write access. Existing edit-enabled links gain these tools after deployment; read-only links stay read-only. Both tools take a fresh UUID `operationId` and optional `dryRun: true`. An operation ID can be submitted once across all write tools; after an interrupted or unknown result, refresh the tree and read affected documents before deciding what remains to do.
+
+- Create: `{projectId, folderId?, name, content?, encoding?: "utf8" | "base64", operationId, dryRun?}`. Omit `folderId` (or use `null`) for the root. Use a single filename and obtain existing folder IDs from the tree. UTF-8 creates an editable document, defaults to empty content, and normalizes CRLF/CR to LF. Base64 must be canonical, without whitespace or a data URL prefix; it creates an attachment. Both have a 2,000,000-byte decoded limit; MCP HTTP requests are capped at 8 MiB. Use UTF-8 for `.tex`/`.bib`, Base64 for images/PDFs. Creation returns `result.id`, `path`, `type`, and `parentFolderId`; text also returns `docId`. Read it to obtain the current version before editing.
+- Delete: `{projectId, fileId, expectedPath, operationId, dryRun?}`. Copy the absolute path (for example `/sections/intro.tex`) from a fresh tree. The native structure lock protects the path check and deletion against concurrent rename/move. Review the file first: deletion removes its current contents, including intervening edits. The result identifies the deleted file and `wasRootDocument`. Native history and realtime file-tree events are preserved. Directory deletion, rename and move are not exposed by these tools.
+
+The operation journal stores the user, grant, kind, target metadata, state and result; create requests store a content digest rather than file contents. Binary uploads use a private temporary directory that is removed after the native upload. Native APIs keep docstore, filestore, project structure, history and broadcasts consistent; the bridge does not insert or delete project entities directly in MongoDB.
 
 After editing, compile and inspect `diagnostics.firstError` and warnings. Use the returned `buildId` with `overleaf_get_compile_log` when more context is needed, re-read the affected document, apply a focused versioned edit, and recompile. MCP initialization instructions, tool descriptions and the sidebar application prompt describe this workflow (up to three repair attempts). Logs and project text are untrusted data. A PDF can coexist with TeX errors: `status` becomes `failure` when the parser finds errors, while `nativeStatus` preserves the upstream result. Missing-character warnings need attention even if compilation succeeds.
 
@@ -116,9 +125,11 @@ The native React frontend is built from the pinned image’s source and cached Y
 
 The web extension is bundled from `src/agent` and `src/chat` into ignored `extensions/agent-access/mcp.cjs`. The image is built from the pinned CE digest in `Dockerfile`; `patches/install.py` and `patches/history.py` reject unexpected upstream source hashes. The history patch presents Agent actors after user resolution and keeps adjacent human/Agent diff fragments separate. The extension uses existing login/CSRF and project authorization, with no human password or unrestricted browser-session delegation.
 
-Link digests and scoped grants live in the application's `agent_grants` collection; edit operation records live in `agent_operations`. Mongo backups include both. The HTTP transport is stateless: every request carries and validates the personal credential. Nginx removes the secret path before forwarding and suppresses credential-route access/error logging; the module removes the private credential header before downstream logging. A future public gateway needs the same redaction rules. Compile input metadata describes observed versions; it does not pin a multi-document snapshot.
+Link digests and scoped grants live in the application's `agent_grants` collection; write operation records live in `agent_operations`. Mongo backups include both. The HTTP transport is stateless: every request carries and validates the personal credential. Nginx removes the secret path before forwarding and suppresses credential-route access/error logging; the module removes the private credential header before downstream logging. A future public gateway needs the same redaction rules. Compile input metadata describes observed versions; it does not pin a multi-document snapshot.
 
 To rebuild after changes, run `npm run build:extension`, `npm run build:connector`, `docker compose build overleaf`, then `docker compose up -d --no-deps --wait overleaf`. Stop without removing data using `docker compose stop`. Roll back to the pinned upstream image in `Dockerfile` to disable the extension while preserving project data and dormant grant collections.
+
+Run `npm run smoke:files` with `OVERLEAF_LAB_ORIGIN` set to the isolated loopback preview and `OVERLEAF_LAB_ACCOUNT` pointing to a mode-0600 JSON file containing a synthetic `@example.invalid` account's `email` and `password`. It creates a dedicated project, exercises the personal HTTP file tools and compilation, and revokes its temporary MCP grants. The project remains for inspection. Production gateways must allow the 8 MiB MCP request limit configured in the image.
 
 ## GitHub account linking
 

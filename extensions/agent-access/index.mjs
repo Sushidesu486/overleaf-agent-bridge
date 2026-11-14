@@ -3,6 +3,11 @@ import mongoose from "../../app/src/infrastructure/Mongoose.mjs";
 import { User } from "../../app/src/models/User.mjs";
 import SessionManager from "../../app/src/Features/Authentication/SessionManager.mjs";
 import ProjectGetter from "../../app/src/Features/Project/ProjectGetter.mjs";
+import ProjectEntityUpdateHandler from "../../app/src/Features/Project/ProjectEntityUpdateHandler.mjs";
+import LockManager from "../../app/src/infrastructure/LockManager.mjs";
+import EditorRealTimeController from "../../app/src/Features/Editor/EditorRealTimeController.mjs";
+import SafePath from "../../app/src/Features/Project/SafePath.mjs";
+import { createFileBackend, projectFileTree } from "./files.mjs";
 import UserSettingsHelper from "../../app/src/Features/Project/UserSettingsHelper.mjs";
 import AuthorizationManager from "../../app/src/Features/Authorization/AuthorizationManager.mjs";
 import CompileManager from "../../app/src/Features/Compile/CompileManager.mjs";
@@ -98,24 +103,6 @@ const store = {
     );
   },
 };
-function flatten(folder, prefix = "/") {
-  const path = prefix;
-  return [
-    ...(folder.docs || []).map((d) => ({
-      id: String(d._id),
-      name: d.name,
-      path: `${path}${d.name}`,
-      type: "document",
-    })),
-    ...(folder.fileRefs || []).map((f) => ({
-      id: String(f._id),
-      name: f.name,
-      path: `${path}${f.name}`,
-      type: "file",
-    })),
-    ...(folder.folders || []).flatMap((f) => flatten(f, `${path}${f.name}/`)),
-  ];
-}
 async function tree(projectId) {
   const project = await ProjectGetter.promises.getProject(projectId, {
     name: 1,
@@ -131,7 +118,7 @@ async function tree(projectId) {
     compiler: project.compiler,
     imageName: project.imageName ?? null,
     rootDocId: project.rootDoc_id ? String(project.rootDoc_id) : null,
-    entries: (project.rootFolder || []).flatMap((f) => flatten(f)),
+    ...projectFileTree(project),
   };
 }
 async function checkDoc(projectId, docId) {
@@ -177,6 +164,14 @@ const compileLogs = new CompileLogs(
     ),
 );
 const backend = {
+  ...createFileBackend({
+    ProjectGetter,
+    ProjectEntityUpdateHandler,
+    LockManager,
+    EditorRealTimeController,
+    SafePath,
+    AgentError,
+  }),
   async user(id) {
     const u = await User.findById(id, {
       email: 1,

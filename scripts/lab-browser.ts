@@ -3,22 +3,23 @@ import { CookieJar } from "tough-cookie";
 import { load } from "cheerio";
 export const origin = "http://localhost:18080";
 export class Browser {
+  constructor(readonly baseUrl = origin) {}
   jar = new CookieJar();
   csrf = "";
   async request(path: string, body?: unknown, csrf = this.csrf) {
-    const response = await fetch(origin + path, {
+    const response = await fetch(this.baseUrl + path, {
       method: body === undefined ? "GET" : "POST",
       redirect: "manual",
       headers: {
         Accept: "application/json",
-        Cookie: await this.jar.getCookieString(origin),
+        Cookie: await this.jar.getCookieString(this.baseUrl),
         "Content-Type": "application/json",
         "X-CSRF-Token": csrf,
       },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     for (const cookie of response.headers.getSetCookie())
-      await this.jar.setCookie(cookie, origin);
+      await this.jar.setCookie(cookie, this.baseUrl);
     return response;
   }
   async login(user: { email: string; password: string }) {

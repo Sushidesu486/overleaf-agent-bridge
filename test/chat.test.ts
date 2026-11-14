@@ -49,6 +49,12 @@ function fixture() {
     async finish() {},
   };
   const backend: Backend = {
+    async createFile() {
+      return {};
+    },
+    async deleteFile() {
+      return {};
+    },
     async user(id) {
       return { id, name: id, email: id + "@example.invalid" };
     },
