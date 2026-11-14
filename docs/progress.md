@@ -1,5 +1,13 @@
 # Development progress
 
+## Production MCP file-tools rollout (2026-11-14)
+
+Promoted source **`e3e47eb`** to production through GitOps commit **`51d1a1e1211c90ab08d1b8c08e5b10af4b407937`**. Argo reports **Synced / Healthy**, with automated prune/self-heal preserved. The application now uses `harbor.clusters.zjusct.io/library/overleaf-agent@sha256:2202df8f84e254065f648729a087f9e06cc57847c76e4a39c047191e52a0536e`.
+
+- The image was pre-pulled on m601 before the existing single-replica `Recreate` update. Render comparison covered 39 resources and found only the application container image changed. MongoDB, Redis, PVCs and routes retained their existing configuration. A 19,332,995-byte MongoDB archive with oplog and the prior deployment were saved privately under `/home/shouss/projects/overleaf-mcp-release-20261114`; the previous CE 6.3.2 image remains the application rollback target.
+- Argo initially could not render because Docker Hub failed to serve Redis chart 25.3.7. The unchanged cached chart was mirrored to Harbor under `library/overleaf-charts/redis:25.3.7` (OCI digest `sha256:4e195811b1c64893fd1df5d7c7e44388705fdf3ae10ad9fef92a809fbcb2ea2e`). Both repo-server pods fetched it successfully; its rendered resources and values are identical. The GitOps pre-commit check and Kustomize render passed.
+- Production HTTPS checks passed the login page, MCP identity/capabilities, nine-tool discovery, text create/read, an actual **50,000,000-byte attachment upload**, compilation with the created document, and deletion of both files. The dedicated fixture was archived and its temporary grant revoked. Existing personal URLs remain valid; clients refresh their tool list or reconnect to discover create/delete. GitHub App configuration remains absent and self-registration remains disabled.
+
 ## Larger MCP attachments (2026-11-14)
 
 Raised Base64 attachment creation to **50,000,000 decoded bytes** for JPG, PNG, SVG, PDF and other attachments. Editable UTF-8 documents retain the **2,000,000-byte** limit. SVG is uploaded as a Base64 attachment to use the larger limit. Tool descriptions, application instructions, errors, README and `whoami` capabilities now distinguish the two limits.
