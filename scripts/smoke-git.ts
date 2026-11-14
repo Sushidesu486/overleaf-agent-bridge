@@ -142,9 +142,9 @@ try {
     paper,
   );
   await assert.rejects(git(["push", "overleaf", "HEAD:main"], paper));
+  await assert.rejects(git(["ls-remote", `${origin}/git/${"a".repeat(24)}`]));
   await browser.json(`${base}/tokens/${issued.id}/revoke`, {});
   await assert.rejects(git(["fetch", "overleaf"], paper));
-  await assert.rejects(git(["ls-remote", `${origin}/git/${"a".repeat(24)}`]));
   console.log(
     JSON.stringify({
       projectId,

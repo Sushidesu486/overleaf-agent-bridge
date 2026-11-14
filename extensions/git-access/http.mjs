@@ -155,6 +155,7 @@ export function createGitApi({
       send(res, known ? error.status : 503, {
         status: known ? error.status : 503,
         error: known ? error.code : "unavailable",
+        error_code: known ? error.code : "unavailable",
         message: known
           ? error.message
           : "Git synchronization is temporarily unavailable.",

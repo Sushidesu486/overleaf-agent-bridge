@@ -10,7 +10,9 @@ test("the bridge API authenticates reads and reauthorizes signed attachment down
     userId = "b".repeat(24),
     secret = "s".repeat(64);
   const grants = new Map();
+  let now = new Date();
   const access = createGitAccess({
+    now: () => now,
     users: {
       async get() {
         return { name: "Reader", email: "reader@example.invalid" };
@@ -96,6 +98,11 @@ test("the bridge API authenticates reads and reauthorizes signed attachment down
   const [blobUrl] = snapshot.atts[0];
   assert.equal(await (await fetch(blobUrl)).text(), "Hello!\n");
   assert.equal((await fetch(blobUrl.replace("/7/0", "/7/1"))).status, 403);
+  now = new Date(now.getTime() + 91 * 86400_000);
+  const expired = await fetch(url, { headers });
+  assert.equal(expired.status, 401);
+  assert.equal((await expired.json()).error_code, "token_expired");
+  now = new Date();
   await access.revoke(userId, projectId, issued.id);
   assert.equal((await fetch(blobUrl)).status, 401);
   assert.equal((await fetch(url, { headers })).status, 401);

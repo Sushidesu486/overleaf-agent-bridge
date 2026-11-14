@@ -1,6 +1,6 @@
 # Direct Git access to Overleaf projects
 
-Status: design proposal, 2026-11-14. The user selected local `git clone / pull / push` as the first Git milestone. No Git endpoint is enabled by this document. Implementation starts in the isolated m701 lab.
+Status: accepted development direction, 2026-11-14. The user selected local `git clone / pull / push` as the first Git milestone. The isolated read-only prototype is underway; [implementation evidence](git-preview.md) records what currently works. Production Git access remains disabled.
 
 ## Decision and scope
 
@@ -75,10 +75,10 @@ The official bridge already waits for a web postback before completing its recei
 Three native facts constrain the implementation:
 
 - `HistoryManager.getLatestZipWithHistoryId` returns a stream with `X-History-Version`; history services also expose versioned content. Prototype a flush-and-pin export through these methods, including immutable attachment references. Enumerating live docs and attachments independently cannot establish one snapshot.
-- `sequentialProjectStructureUpdateLock` covers structural operations. Existing MCP `expectedVersion` is checked under a single document's updater lock. Neither alone protects a multi-file Git push from browser edits.
+- `sequentialProjectStructureUpdateLock` covers structural operations. Source inspection during implementation established that `UpdateManager.lockUpdatesAndDo` drains the realtime queue under a **per-project** updater lock. Existing MCP `expectedVersion` checks run inside that lock for one HTTP operation. A multi-file Git push still needs coordination across updater requests, structural operations and recovery.
 - In the deployed native source, document-updater `RedisManager.blockProject` returns false when documents are already loaded and removes the block. It prevents loading an unloaded project; it does not freeze an active editor. Do not use it as the new write barrier.
 
-The first prototype must establish a short project-wide apply barrier covering native text updates and structural writers, including browser and MCP writes. Drain already accepted work before pinning/rechecking the base. Stage blobs before entering it. Newly arriving edits must receive a retryable response or remain in the editor's acknowledged operation flow; preserve unsent client changes. Verify editor reconnection/OT behavior in the actual CE image before accepting this design for release.
+The first write prototype must establish a short project-wide apply barrier covering native text updates and structural writers, including browser and MCP writes. Drain already accepted work before pinning/rechecking the base. Stage blobs before entering it. Newly arriving edits must receive a retryable response or remain in the editor's acknowledged operation flow; preserve unsent client changes. Verify editor reconnection/OT behavior in the actual CE image before accepting this design for release.
 
 Apply changed text through native document updates, retaining document IDs, and files/tree changes through native entity handlers and history/broadcast paths. Preserve `.gitignore` as a source file. Do not reuse TPDS's Dropbox ignore rules or its project-name-based contract. Do not write document content directly to MongoDB or a compiler working directory.
 

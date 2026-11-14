@@ -9,6 +9,7 @@ import {
   rename,
   rm,
   stat,
+  utimes,
 } from "node:fs/promises";
 import { join } from "node:path";
 import { Transform } from "node:stream";
@@ -146,6 +147,18 @@ async function unpack(zipPath, directory) {
 // The immutable on-disk snapshot remains available during all bridge downloads.
 export function createSnapshotCache({ root, capture }) {
   const inFlight = new Map();
+  const queues = new Map();
+  // Reads renew retention before URLs are issued. Serialize them with cleanup
+  // so a snapshot cannot be selected for deletion while renewing its lease.
+  function exclusive(projectId, operation) {
+    const result = (queues.get(projectId) ?? Promise.resolve()).then(operation);
+    const tail = result.catch(() => {});
+    queues.set(projectId, tail);
+    void tail.then(() => {
+      if (queues.get(projectId) === tail) queues.delete(projectId);
+    });
+    return result;
+  }
   function pathFor(projectId, version) {
     if (
       !validId(projectId) ||
@@ -158,12 +171,13 @@ export function createSnapshotCache({ root, capture }) {
   }
   async function read(projectId, version) {
     try {
-      return JSON.parse(
-        await readFile(
-          join(pathFor(projectId, version), "manifest.json"),
-          "utf8",
-        ),
+      const directory = pathFor(projectId, version);
+      const manifest = JSON.parse(
+        await readFile(join(directory, "manifest.json"), "utf8"),
       );
+      const now = new Date();
+      await utimes(directory, now, now);
+      return manifest;
     } catch (error) {
       if (error.code === "ENOENT")
         throw new GitError(
@@ -216,7 +230,7 @@ export function createSnapshotCache({ root, capture }) {
       });
       await rm(join(temp, "snapshot.zip"));
       await rename(temp, target);
-      // Export URLs live for 15 minutes. Keep two days of immutable snapshots
+      // Export URLs live for 15 minutes. Keep snapshots for two days after use
       // for in-flight transfers; permanent Git history lives in the bridge PVC.
       for (const name of await readdir(base)) {
         if (!/^\d+$/.test(name) || name === String(version)) continue;
@@ -238,22 +252,28 @@ export function createSnapshotCache({ root, capture }) {
       if (!inFlight.has(projectId))
         inFlight.set(
           projectId,
-          latest(projectId).finally(() => inFlight.delete(projectId)),
+          exclusive(projectId, () => latest(projectId)).finally(() =>
+            inFlight.delete(projectId),
+          ),
         );
       return inFlight.get(projectId);
     },
-    read,
-    async file(projectId, version, index) {
-      const manifest = await read(projectId, version);
-      const file = manifest.files.find((file) => file.index === index);
-      if (!file)
-        throw new GitError("not_found", "Snapshot file not found.", 404);
-      return {
-        ...file,
-        stream: createReadStream(
-          join(pathFor(projectId, version), String(index)),
-        ),
-      };
+    read(projectId, version) {
+      return exclusive(projectId, () => read(projectId, version));
+    },
+    file(projectId, version, index) {
+      return exclusive(projectId, async () => {
+        const manifest = await read(projectId, version);
+        const file = manifest.files.find((file) => file.index === index);
+        if (!file)
+          throw new GitError("not_found", "Snapshot file not found.", 404);
+        return {
+          ...file,
+          stream: createReadStream(
+            join(pathFor(projectId, version), String(index)),
+          ),
+        };
+      });
     },
   };
 }

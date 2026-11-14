@@ -10,9 +10,11 @@ export function createGitStore(db) {
     },
     async listGrants(userId, projectId) {
       return grants
-        .find({ userId, projectId }, { projection: { _id: 0 } })
+        .find(
+          { userId, projectId, revokedAt: null },
+          { projection: { _id: 0 } },
+        )
         .sort({ createdAt: -1 })
-        .limit(100)
         .toArray();
     },
     async revoke(id, userId) {
