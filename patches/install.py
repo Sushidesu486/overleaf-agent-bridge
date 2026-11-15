@@ -20,4 +20,26 @@ replace('/overleaf/services/document-updater/app/js/HttpController.js', '    und
 replace('/overleaf/services/document-updater/app/js/HttpController.js', '  const { lines, source, user_id: userId, undoing, trackChanges } = body', "  const { lines, source, user_id: userId, undoing, trackChanges, expectedVersion } = body\n  if (source === 'agent' && expectedVersion === undefined) return res.sendStatus(400)")
 replace('/overleaf/services/document-updater/app/js/HttpController.js', '    undoing,\n    true,\n    trackChanges\n  )\n  timer.done()', '    undoing,\n    true,\n    trackChanges,\n    expectedVersion\n  )\n  timer.done()\n  if (result?.agentVersionConflict) return res.status(409).json({ error: "version-conflict" })')
 replace('/overleaf/services/document-updater/app/js/HttpController.js', '  res.json({\n    id: docId,', "  res.setHeader('X-Overleaf-Agent-CAS', '1')\n  res.json({\n    id: docId,")
-replace('/etc/nginx/sites-enabled/overleaf.conf', '\tlocation / {', '\n  # Personal URLs are credentials: remove the path before forwarding/logging.\n  location = /agent-mcp { access_log off; return 404; }\n  location ~ "^/mcp/p/([a-f0-9]{24}\\.[A-Za-z0-9_-]{43})$" {\n    access_log off;\n    error_log /dev/null crit;\n    set $agent_credential $1;\n    rewrite ^ /agent-mcp? break;\n    proxy_pass http://127.0.0.1:4000;\n    proxy_http_version 1.1;\n    proxy_set_header X-Overleaf-Agent-Key $agent_credential;\n    proxy_set_header Host $host;\n    proxy_set_header Connection "";\n    proxy_buffering off;\n    proxy_read_timeout 180s;\n    client_max_body_size 1m;\n  }\n  location /mcp/ { access_log off; error_log /dev/null crit; return 404; }\n\n\tlocation / {')
+replace('/etc/nginx/sites-enabled/overleaf.conf', '\tlocation / {', '\n  # Personal URLs are credentials: remove the path before forwarding/logging.\n  location = /agent-mcp { access_log off; return 404; }\n  location ~ "^/mcp/p/([a-f0-9]{24}\\.[A-Za-z0-9_-]{43})$" {\n    access_log off;\n    error_log /dev/null crit;\n    set $agent_credential $1;\n    rewrite ^ /agent-mcp? break;\n    proxy_pass http://127.0.0.1:4000;\n    proxy_http_version 1.1;\n    proxy_set_header X-Overleaf-Agent-Key $agent_credential;\n    proxy_set_header Host $host;\n    proxy_set_header Connection "";\n    proxy_buffering off;\n    proxy_read_timeout 180s;\n    client_max_body_size 72m;\n  }\n  location /mcp/ { access_log off; error_log /dev/null crit; return 404; }\n\n\tlocation / {')
+
+# OAuth codes and state must not reach request URLs in native logs.
+replace('/etc/nginx/sites-enabled/overleaf.conf', '\tlocation / {', '''
+  location = /github-callback { access_log off; return 404; }
+  location ~ ^/user/github/callback/?$ {
+    access_log off;
+    error_log /dev/null crit;
+    set $github_code $arg_code;
+    set $github_state $arg_state;
+    set $github_error $arg_error;
+    rewrite ^ /github-callback? break;
+    proxy_pass http://127.0.0.1:4000;
+    proxy_http_version 1.1;
+    proxy_set_header X-Overleaf-GitHub-Code $github_code;
+    proxy_set_header X-Overleaf-GitHub-State $github_state;
+    proxy_set_header X-Overleaf-GitHub-Error $github_error;
+    proxy_set_header Host $http_host;
+    proxy_set_header Connection "";
+    proxy_read_timeout 60s;
+  }
+
+\tlocation / {''')

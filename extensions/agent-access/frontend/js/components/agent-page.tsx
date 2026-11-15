@@ -36,9 +36,9 @@ type State = {
 };
 type Notice = { type: "success" | "error" | "info"; text: string };
 const actionNames: Record<string, string> = {
-  read: "读取",
-  edit: "编辑",
-  compile: "编译",
+  read: "Read",
+  edit: "Edit",
+  compile: "Compile",
 };
 
 export default function AgentPage() {
@@ -49,7 +49,7 @@ export default function AgentPage() {
       <OLRow>
         <OLCol xl={{ span: 10, offset: 1 }}>
           <OLPageContentCard>
-            {isReady ? <AgentSettings /> : <p role="status">正在加载…</p>}
+            {isReady ? <AgentSettings /> : <p role="status">Loading…</p>}
           </OLPageContentCard>
         </OLCol>
       </OLRow>
@@ -66,7 +66,7 @@ export function AgentSettings({
       projectId ?? new URLSearchParams(window.location.search).get("project"),
   );
   const [state, setState] = useState<State | null>(null);
-  const [name, setName] = useState("我的 Agent");
+  const [name, setName] = useState("My Agent");
   const [limited, setLimited] = useState(Boolean(requestedProject));
   const [selected, setSelected] = useState<string[]>(
     requestedProject ? [requestedProject] : [],
@@ -92,12 +92,12 @@ export function AgentSettings({
       type: "error",
       text:
         error instanceof FetchError && error.response?.status === 401
-          ? "登录已过期，请重新登录 Overleaf。"
+          ? "Your session has expired. Sign in to Overleaf again."
           : getUserFacingMessage(
               error instanceof Error
                 ? error
-                : new Error("请求失败，请稍后重试。"),
-            ) || "请求失败，请稍后重试。",
+                : new Error("The request failed. Please try again later."),
+            ) || "The request failed. Please try again later.",
     });
   }, []);
   const refresh = useCallback(async () => {
@@ -118,14 +118,14 @@ export function AgentSettings({
     setReveal(false);
     setNotice({
       type: "success",
-      text: "链接已生成，请复制到 Agent 客户端的 MCP 设置。",
+      text: "Link created. Copy it to the MCP settings in your agent client.",
     });
   }
   async function create(event: FormEvent) {
     event.preventDefault();
     if (busy || invalidProject || !state) return;
     if (limited && !selected.length) {
-      setNotice({ type: "error", text: "请至少选择一个项目。" });
+      setNotice({ type: "error", text: "Select at least one project." });
       return;
     }
     setBusy(true);
@@ -164,7 +164,10 @@ export function AgentSettings({
       if (data.url) showLink(data.url, grant.id);
       else {
         if (created?.grantId === grant.id) setCreated(null);
-        setNotice({ type: "success", text: `“${grant.name}”已停用。` });
+        setNotice({
+          type: "success",
+          text: `${grant.name} has been disabled.`,
+        });
       }
       await refresh();
     } catch (error) {
@@ -179,13 +182,13 @@ export function AgentSettings({
       await navigator.clipboard.writeText(created.url);
       setNotice({
         type: "success",
-        text: "已复制，粘贴到 Agent 客户端的 MCP 设置即可。",
+        text: "Copied. Paste it into the MCP settings in your agent client.",
       });
     } catch {
       setReveal(true);
       setNotice({
         type: "info",
-        text: "浏览器未允许自动复制，请选中链接手动复制。",
+        text: "The browser blocked automatic copying. Select and copy the link manually.",
       });
       urlInput.current?.focus();
       urlInput.current?.select();
@@ -197,12 +200,15 @@ export function AgentSettings({
       {!embedded && (
         <div className="page-header">
           <div className="d-flex flex-wrap align-items-center justify-content-between gap-3">
-            <h1>我的 Agent</h1>
+            <h1>My Agent</h1>
             <div className="agent-theme-toggle">
               <ThemeToggle />
             </div>
           </div>
-          <p>管理你的 MCP 连接，让 Agent 使用你的账号协作编辑 LaTeX。</p>
+          <p>
+            Manage MCP connections so your agent can collaborate on LaTeX using
+            your account.
+          </p>
           {state && (
             <p className="small" id="identity">
               {state.user.name} · {state.user.email}
@@ -214,7 +220,7 @@ export function AgentSettings({
               href={`/project/${project.id}`}
               leadingIcon="arrow_back"
             >
-              返回 {project.name}
+              Back to {project.name}
             </OLButton>
           )}
         </div>
@@ -222,7 +228,7 @@ export function AgentSettings({
       {invalidProject && (
         <Notification
           type="error"
-          content="当前项目不存在或你已失去访问权限。请返回项目列表重新选择。"
+          content="This project no longer exists or is no longer accessible. Return to your project list and select another project."
         />
       )}
       {notice && (
@@ -236,16 +242,16 @@ export function AgentSettings({
       )}
       <OLRow>
         <OLCol lg={5}>
-          <h3>连接我的 Agent</h3>
+          <h3>Connect my agent</h3>
           {project && (
             <p>
-              当前项目：<strong>{project.name}</strong>
+              Current project: <strong>{project.name}</strong>
             </p>
           )}
           <form id="create" onSubmit={create}>
             <fieldset disabled={busy || !state || invalidProject}>
               <OLFormGroup controlId="name">
-                <OLFormLabel>连接名称</OLFormLabel>
+                <OLFormLabel>Connection name</OLFormLabel>
                 <OLFormControl
                   value={name}
                   maxLength={60}
@@ -255,12 +261,12 @@ export function AgentSettings({
               </OLFormGroup>
               <OLFormGroup>
                 <fieldset>
-                  <legend className="h6">项目范围</legend>
+                  <legend className="h6">Project scope</legend>
                   <OLFormCheckbox
                     id="scope-all"
                     type="radio"
                     name="scope"
-                    label="全部本人可访问项目"
+                    label="All projects I can access"
                     checked={!limited}
                     onChange={() => setLimited(false)}
                   />
@@ -268,7 +274,7 @@ export function AgentSettings({
                     id="limited"
                     type="radio"
                     name="scope"
-                    label="仅选中的项目"
+                    label="Selected projects only"
                     checked={limited}
                     onChange={() => setLimited(true)}
                   />
@@ -295,7 +301,7 @@ export function AgentSettings({
                           />
                         ))
                       ) : (
-                        <p className="small mb-0">暂无可访问的项目。</p>
+                        <p className="small mb-0">No accessible projects.</p>
                       )}
                     </div>
                   )}
@@ -303,22 +309,22 @@ export function AgentSettings({
               </OLFormGroup>
               <OLFormGroup>
                 <fieldset>
-                  <legend className="h6">允许的操作</legend>
+                  <legend className="h6">Permissions</legend>
                   <OLFormCheckbox
                     id="read"
-                    label="读取项目（必需）"
+                    label="Read projects (required)"
                     checked
                     disabled
                   />
                   <OLFormCheckbox
                     id="edit"
-                    label="编辑文档"
+                    label="Edit, create and delete files; create folders"
                     checked={edit}
                     onChange={(e) => setEdit(e.target.checked)}
                   />
                   <OLFormCheckbox
                     id="compile"
-                    label="编译项目"
+                    label="Compile projects"
                     checked={compile}
                     onChange={(e) => setCompile(e.target.checked)}
                   />
@@ -331,35 +337,43 @@ export function AgentSettings({
                   isLoading={busy}
                   disabled={limited && !selected.length}
                 >
-                  生成专属链接
+                  Generate personal link
                 </OLButton>
               </OLFormGroup>
             </fieldset>
           </form>
         </OLCol>
         <OLCol lg={{ span: 5, offset: 1 }}>
-          <h3>如何连接</h3>
+          <h3>How to connect</h3>
           <ol className="ps-3">
-            <li className="mb-2">填写连接名称，选择项目范围和操作权限。</li>
             <li className="mb-2">
-              生成专属链接，复制到 Agent 客户端的 HTTP MCP 地址栏。
+              Name the connection, then choose its projects and permissions.
             </li>
-            <li className="mb-2">让 Agent 打开项目，开始编辑和编译。</li>
+            <li className="mb-2">
+              Generate a personal link and paste it into the HTTP MCP URL field
+              in your agent client.
+            </li>
+            <li className="mb-2">
+              Ask your agent to open a project, then edit and compile.
+            </li>
           </ol>
           <p className="small">
-            Agent 的修改会同步到编辑器，在 History 中显示为 Your
-            agent。项目权限变化后，连接权限也会随之更新。
+            Agent edits appear in the editor and are labeled Your agent in
+            History. Connection permissions follow changes to your project
+            access.
           </p>
           <p className="small">
-            完整链接仅在生成时显示，请保存在客户端个人设置中。需要更换时可重新生成，原链接会立即失效。
+            The full link is shown only when generated. Save it in your client
+            settings. Regenerating a link immediately invalidates the previous
+            one.
           </p>
         </OLCol>
       </OLRow>
       {created && (
         <section id="created" aria-labelledby="created-title" className="my-3">
-          <h3 id="created-title">你的 MCP 链接</h3>
+          <h3 id="created-title">Your MCP link</h3>
           <OLFormGroup controlId="url">
-            <OLFormLabel>专属 MCP URL</OLFormLabel>
+            <OLFormLabel>Personal MCP URL</OLFormLabel>
             <div className="d-flex flex-wrap gap-2">
               <OLFormControl
                 ref={urlInput}
@@ -376,18 +390,18 @@ export function AgentSettings({
                 leadingIcon="content_copy"
                 onClick={copyLink}
               >
-                复制链接
+                Copy link
               </OLButton>
             </div>
           </OLFormGroup>
           <OLFormCheckbox
             id="reveal"
-            label="显示完整链接"
+            label="Show full link"
             checked={reveal}
             onChange={(e) => setReveal(e.target.checked)}
           />
           <OLButton variant="link" onClick={() => setCreated(null)}>
-            已保存，关闭显示
+            Saved, hide link
           </OLButton>
         </section>
       )}
@@ -395,7 +409,7 @@ export function AgentSettings({
       <section aria-labelledby="connections-title">
         <div className="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
           <h3 id="connections-title" className="mb-0">
-            我的连接
+            My connections
           </h3>
           <OLButton
             id="refresh"
@@ -407,26 +421,26 @@ export function AgentSettings({
               void refresh().catch(showError);
             }}
           >
-            刷新状态
+            Refresh status
           </OLButton>
         </div>
         <OLFormCheckbox
           id="show-revoked"
-          label="显示已停用的连接"
+          label="Show disabled connections"
           checked={showRevoked}
           onChange={(e) => setShowRevoked(e.target.checked)}
         />
         {!state ? (
-          <p role="status">正在加载连接…</p>
+          <p role="status">Loading connections…</p>
         ) : visibleGrants.length ? (
           <div className="table-responsive" id="links">
             <Table className="align-middle" style={{ minWidth: "38rem" }}>
               <thead>
                 <tr>
-                  <th>连接</th>
-                  <th>访问范围</th>
-                  <th>最近使用</th>
-                  <th>操作</th>
+                  <th>Connection</th>
+                  <th>Access scope</th>
+                  <th>Last used</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -437,22 +451,22 @@ export function AgentSettings({
                       <div className="mt-1">
                         <OLBadge bg={grant.revokedAt ? "secondary" : "info"}>
                           {grant.revokedAt
-                            ? "已停用"
+                            ? "Disabled"
                             : grant.lastUsedAt
-                              ? "已使用"
-                              : "等待首次连接"}
+                              ? "Used"
+                              : "Awaiting first connection"}
                         </OLBadge>
                       </div>
                     </td>
                     <td>
                       <div>
                         {grant.projects === null
-                          ? "全部本人可访问项目"
+                          ? "All projects I can access"
                           : grant.projects
                               .map(
                                 (id) =>
                                   state.projects.find((p) => p.id === id)
-                                    ?.name || "已不可访问的项目",
+                                    ?.name || "Inaccessible project",
                               )
                               .join("、")}
                       </div>
@@ -465,7 +479,7 @@ export function AgentSettings({
                     <td className="small">
                       {grant.lastUsedAt
                         ? new Date(grant.lastUsedAt).toLocaleString()
-                        : "尚无使用记录"}
+                        : "Not used yet"}
                     </td>
                     <td>
                       {!grant.revokedAt && (
@@ -478,7 +492,7 @@ export function AgentSettings({
                               void changeLink(grant, "rotate");
                             }}
                           >
-                            重新生成
+                            Regenerate
                           </OLButton>
                           <OLButton
                             variant="danger-ghost"
@@ -488,7 +502,7 @@ export function AgentSettings({
                               void changeLink(grant, "revoke");
                             }}
                           >
-                            停用
+                            Disable
                           </OLButton>
                         </div>
                       )}
@@ -500,11 +514,13 @@ export function AgentSettings({
           </div>
         ) : (
           <p className="small">
-            暂无启用中的连接。生成新链接，或查看已停用的连接。
+            No active connections. Generate a new link, or show disabled
+            connections.
           </p>
         )}
         <p className="small">
-          停用后，Agent 的后续请求将被拒绝，已提交的编辑会保留。
+          Disabling a connection blocks future agent requests. Edits already
+          submitted are preserved.
         </p>
       </section>
     </>

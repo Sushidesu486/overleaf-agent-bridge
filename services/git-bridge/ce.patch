@@ -1,0 +1,22 @@
+--- a/src/main/java/uk/ac/ic/wlgitbridge/server/Oauth2Filter.java
++++ b/src/main/java/uk/ac/ic/wlgitbridge/server/Oauth2Filter.java
+@@ -114 +114 @@
+-      AccessTokenCheck check = checkAccessToken(this.oauth2Server, password, getClientIp(request));
++      AccessTokenCheck check = checkAccessToken(this.oauth2Server, password, getClientIp(request), projectId, requestUri.endsWith("/git-receive-pack") || "git-receive-pack".equals(request.getParameter("service")));
+@@ -122,0 +123,5 @@
++        return;
++      } else if (check.statusCode == 403) {
++        sendResponse(response, 403, Arrays.asList(
++            "Git access denied for this project.",
++            "Check the project's Git settings, your token scope and your current membership."));
+@@ -284,2 +289,2 @@
+-      String oauth2Server, String accessToken, String clientIp) throws IOException {
+-    GenericUrl url = new GenericUrl(oauth2Server + "/oauth/token/info?client_ip=" + clientIp);
++      String oauth2Server, String accessToken, String clientIp, String projectId, boolean write) throws IOException {
++    GenericUrl url = new GenericUrl(oauth2Server + "/oauth/token/info?project_id=" + projectId + "&access=" + (write ? "write" : "read"));
+@@ -288,0 +294 @@
++    headers.set("X-Overleaf-Git-Service", System.getenv("GIT_BRIDGE_SERVICE_SECRET"));
+--- a/src/main/java/uk/ac/ic/wlgitbridge/snapshot/base/SnapshotAPIRequest.java
++++ b/src/main/java/uk/ac/ic/wlgitbridge/snapshot/base/SnapshotAPIRequest.java
+@@ -21,0 +22 @@
++    request.getHeaders().set("X-Overleaf-Git-Service", System.getenv("GIT_BRIDGE_SERVICE_SECRET"));

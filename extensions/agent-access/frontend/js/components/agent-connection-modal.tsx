@@ -33,7 +33,7 @@ export default function AgentConnectionModal({
   refresh: () => void;
 }) {
   const [runtime, setRuntime] = useState<RuntimeId>("codex");
-  const [name, setName] = useState("我的 Agent");
+  const [name, setName] = useState("My Agent");
   const [edit, setEdit] = useState(true),
     [compile, setCompile] = useState(true);
   const [pairing, setPairing] = useState<{
@@ -85,7 +85,9 @@ export default function AgentConnectionModal({
       );
       setCopied(false);
     } catch {
-      setError("生成配对码失败，请检查登录状态后重试。");
+      setError(
+        "Unable to generate a pairing code. Check that you are signed in and try again.",
+      );
     } finally {
       setBusy(false);
     }
@@ -97,7 +99,7 @@ export default function AgentConnectionModal({
       await postJSON(`/user/agent/chat/connections/${id}/revoke`);
       refresh();
     } catch {
-      setError("停用失败，请重试。");
+      setError("Unable to disable the connection. Please try again.");
     } finally {
       setBusy(false);
     }
@@ -111,11 +113,11 @@ export default function AgentConnectionModal({
       className="agent-connect-modal"
     >
       <OLModalHeader>
-        <OLModalTitle>连接我的 Agent</OLModalTitle>
+        <OLModalTitle>Connect my agent</OLModalTitle>
       </OLModalHeader>
       <OLModalBody>
         <p>
-          当前项目：<strong>{projectName}</strong>
+          Current project: <strong>{projectName}</strong>
         </p>
         <TabContainer
           defaultActiveKey="chat"
@@ -128,23 +130,26 @@ export default function AgentConnectionModal({
               eventKey="chat"
               className="ide-settings-tab-link ide-settings-tab-link-button"
             >
-              侧栏聊天
+              Sidebar chat
             </NavLink>
             <NavLink
               as="button"
               eventKey="mcp"
               className="ide-settings-tab-link ide-settings-tab-link-button"
             >
-              个人 MCP 链接
+              Personal MCP links
             </NavLink>
           </Nav>
           <TabContent>
             <Tab.Pane eventKey="chat">
-              <p>在自己的设备上运行连接器，继续使用自己的 Agent 和模型账号。</p>
+              <p>
+                Run the connector on your device to use your own agent and model
+                account.
+              </p>
               {error && <Notification type="error" content={error} />}
               <fieldset disabled={busy}>
                 <OLFormGroup controlId="chat-runtime">
-                  <OLFormLabel>使用的 Agent</OLFormLabel>
+                  <OLFormLabel>Agent runtime</OLFormLabel>
                   <OLFormSelect
                     value={runtime}
                     onChange={(e) => setRuntime(e.target.value as RuntimeId)}
@@ -157,10 +162,11 @@ export default function AgentConnectionModal({
                   </OLFormSelect>
                 </OLFormGroup>
                 <p className="small">
-                  {runtimes[runtime].login} 模型账号留在本机。
+                  {runtimes[runtime].login} Your model credentials stay on your
+                  device.
                 </p>
                 <OLFormGroup controlId="chat-connection-name">
-                  <OLFormLabel>连接名称</OLFormLabel>
+                  <OLFormLabel>Connection name</OLFormLabel>
                   <OLFormControl
                     type="text"
                     value={name}
@@ -169,17 +175,18 @@ export default function AgentConnectionModal({
                   />
                 </OLFormGroup>
                 <p className="small">
-                  默认只授权当前项目；读取项目为必需权限。
+                  Only the current project is authorized by default. Read access
+                  is required.
                 </p>
                 <OLFormCheckbox
                   id="chat-edit"
-                  label="允许编辑文档"
+                  label="Allow document editing"
                   checked={edit}
                   onChange={(e) => setEdit(e.target.checked)}
                 />
                 <OLFormCheckbox
                   id="chat-compile"
-                  label="允许编译项目"
+                  label="Allow compilation"
                   checked={compile}
                   onChange={(e) => setCompile(e.target.checked)}
                 />
@@ -189,13 +196,13 @@ export default function AgentConnectionModal({
                   disabled={!name.trim()}
                   onClick={pair}
                 >
-                  生成配对码
+                  Generate pairing code
                 </OLButton>
               </fieldset>
               {pairedConnection && (
                 <Notification
                   type="success"
-                  content="连接成功，已为当前项目选中这个 Agent。关闭弹窗即可继续。"
+                  content="Connected. Start a new conversation, or select this agent for an existing conversation."
                 />
               )}
               {pairing && !pairedConnection && (
@@ -205,10 +212,11 @@ export default function AgentConnectionModal({
                     download
                     variant="secondary"
                   >
-                    下载连接器
+                    Download connector
                   </OLButton>
                   <p className="mt-3">
-                    下载后，在文件所在目录运行（需要 Node.js 22+）：
+                    After downloading, run this command in the same directory
+                    (Node.js 22+ required):
                   </p>
                   <pre className="agent-command">
                     <code>
@@ -217,11 +225,13 @@ export default function AgentConnectionModal({
                     </code>
                   </pre>
                   <p className="small">
-                    按终端提示粘贴下面的配对码。10
-                    分钟内有效，只能使用一次。首次启动会下载固定版本的适配器；连接成功后自动建立项目会话，后续消息复用该会话。
+                    Paste the pairing code below when prompted. It expires in 10
+                    minutes and can be used once. A pinned adapter is downloaded
+                    on first launch. The first message creates a session; later
+                    messages reuse it.
                   </p>
                   <OLFormGroup controlId="agent-pair-code">
-                    <OLFormLabel>一次性配对码</OLFormLabel>
+                    <OLFormLabel>One-time pairing code</OLFormLabel>
                     <OLFormControl
                       type="password"
                       readOnly
@@ -235,15 +245,17 @@ export default function AgentConnectionModal({
                         await navigator.clipboard.writeText(pairing.code);
                         setCopied(true);
                       } catch {
-                        setError("自动复制失败，请选中配对码手动复制。");
+                        setError(
+                          "Automatic copying failed. Select and copy the pairing code manually.",
+                        );
                       }
                     }}
                   >
-                    {copied ? "已复制" : "复制配对码"}
+                    {copied ? "Copied" : "Copy pairing code"}
                   </OLButton>
                 </div>
               )}
-              <h4 className="mt-4">此项目的连接</h4>
+              <h4 className="mt-4">Connections for this project</h4>
               {projectConnections.length ? (
                 projectConnections.map((c) => (
                   <div
@@ -253,33 +265,47 @@ export default function AgentConnectionModal({
                     <div>
                       <strong>{c.name}</strong>
                       <div className="small">
-                        {c.runtime} · {c.online ? "在线" : "离线"}
+                        {c.runtime} · {c.online ? "Online" : "Offline"}
                       </div>
                     </div>
-                    <OLButton
-                      variant="danger-ghost"
-                      size="sm"
-                      disabled={busy}
-                      onClick={() => revoke(c.id)}
-                    >
-                      停用
-                    </OLButton>
+                    <div className="d-flex gap-2">
+                      <OLButton
+                        variant="secondary"
+                        size="sm"
+                        disabled={busy || !c.online}
+                        onClick={() => onConnected(c.id)}
+                      >
+                        Select this agent
+                      </OLButton>
+                      <OLButton
+                        variant="danger-ghost"
+                        size="sm"
+                        disabled={busy}
+                        onClick={() => revoke(c.id)}
+                      >
+                        Disable
+                      </OLButton>
+                    </div>
                   </div>
                 ))
               ) : (
-                <p>暂时没有连接。完成终端配对后，在线状态会自动更新。</p>
+                <p>
+                  No connections yet. Status updates automatically after pairing
+                  in the terminal.
+                </p>
               )}
               {elsewhere.length > 0 && (
                 <p className="small" role="status">
-                  本地已有连接在线，但绑定其他项目：
+                  A local connection is online for other projects:
                   {elsewhere
                     .map((c) => c.projectNames?.join("、") || c.name)
-                    .join("；")}
-                  。当前项目需要使用上方的配对码单独连接。
+                    .join("; ")}
+                  . Use the pairing code above to connect this project.
                 </p>
               )}
               <p className="small mt-3">
-                停用会撤销此连接的 MCP 授权，并停止接收新的任务。
+                Disabling a connection revokes its MCP access and stops new
+                tasks.
               </p>
             </Tab.Pane>
             <Tab.Pane eventKey="mcp">

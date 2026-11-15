@@ -16,7 +16,10 @@
     "smoke:compile": "tsx scripts/smoke-compile.ts",
     "smoke:personal": "tsx scripts/smoke-personal.ts",
     "connect": "tsx src/connector/cli.ts",
-    "build:connector": "esbuild src/connector/cli.ts --bundle --platform=node --format=esm --target=node20 --outfile=extensions/agent-access/public/overleaf-agent-connector.mjs"
+    "build:connector": "esbuild src/connector/cli.ts --bundle --platform=node --format=esm --target=node20 --outfile=extensions/agent-access/public/overleaf-agent-connector.mjs",
+    "smoke:files": "tsx scripts/smoke-files.ts",
+    "smoke:git": "tsx scripts/smoke-git.ts",
+    "smoke:git-bridge": "node scripts/smoke-git-bridge.mjs"
   },
   "keywords": [
     "overleaf",
@@ -34,17 +37,25 @@
     "zod": "4.6.7"
   },
   "devDependencies": {
+    "@types/marked": "4.3.2",
     "@types/node": "20.19.43",
     "esbuild": "0.28.2",
+    "marked": "4.3.0",
     "prettier": "3.6.2",
     "react": "18.3.1",
     "react-test-renderer": "18.3.1",
     "tsx": "4.23.15",
-    "typescript": "7.0.2"
+    "typescript": "7.0.2",
+    "yauzl": "3.4.0"
   },
   "private": true,
   "type": "module",
   "engines": {
     "node": ">=20.19"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Sushidesu486/overleaf-agent-bridge.git"
+  },
+  "homepage": "https://github.com/Sushidesu486/overleaf-agent-bridge#readme"
 }

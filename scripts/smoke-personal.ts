@@ -68,7 +68,7 @@ try {
     projects: [projectId],
   });
   const client = await connect(link.url);
-  assert.equal((await client.listTools()).tools.length, 7);
+  assert.equal((await client.listTools()).tools.length, 9);
   const who = await call(client, "overleaf_whoami");
   assert.equal(who.user.email, users[0].email);
   assert.deepEqual(

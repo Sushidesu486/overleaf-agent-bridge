@@ -100,12 +100,30 @@ async function connections(project = projectId): Promise<PublicConnection[]> {
     `/user/agent/chat/connections?projectId=${project}&includeOthers=1`,
   );
 }
-async function ready(): Promise<ChatSession> {
+async function ready(create = false): Promise<ChatSession> {
   await until(
     async () =>
       (await connections()).find((c) => c.id === connectionId)?.online,
     "connector did not become online",
   );
+  let createdId: string | undefined;
+  if (create) {
+    const before = await browser.json(
+      `/user/agent/chat/sessions?projectId=${projectId}`,
+    );
+    assert.ok(
+      !before.some(
+        (s: { connectionId: string }) => s.connectionId === connectionId,
+      ),
+      "pairing must not create visible empty conversations",
+    );
+    createdId = (
+      await browser.json("/user/agent/chat/sessions", {
+        projectId,
+        connectionId,
+      })
+    ).id;
+  }
   return until(async () => {
     const list = await browser.json(
       `/user/agent/chat/sessions?projectId=${projectId}`,
@@ -113,8 +131,10 @@ async function ready(): Promise<ChatSession> {
     const entry = list.find(
       (s: { connectionId: string }) => s.connectionId === connectionId,
     );
-    if (!entry) return;
-    const session = await browser.json(`/user/agent/chat/sessions/${entry.id}`);
+    if (!entry && !createdId) return;
+    const session = await browser.json(
+      `/user/agent/chat/sessions/${createdId || entry.id}`,
+    );
     return session.agentState === "ready" && session;
   }, "project session did not become ready");
 }
@@ -145,7 +165,7 @@ try {
       return false;
     }
   }, "pairing profile was not saved");
-  const first = await ready();
+  const first = await ready(true);
   assert.ok(output.includes("连接已确认"));
   assert.ok(output.includes(projectName));
   assert.ok(output.includes(`${origin}/project/${projectId}`));
@@ -186,6 +206,52 @@ try {
     second.messages.filter((m: { role: string }) => m.role === "user").length,
     2,
   );
+  const renamed = await browser.json(
+    `/user/agent/chat/sessions/${second.id}/settings`,
+    {
+      revision: second.revision,
+      title: "Conversation [smoke]",
+    },
+  );
+  const searched = await browser.json(
+    `/user/agent/chat/sessions?projectId=${projectId}&search=${encodeURIComponent("[smoke]")}`,
+  );
+  assert.ok(searched.some((s: ChatSession) => s.id === second.id));
+  const after = await browser.json(
+    `/user/agent/chat/sessions?projectId=${projectId}&before=${encodeURIComponent(renamed.updatedAt)}&beforeId=${renamed.id}`,
+  );
+  assert.ok(!after.some((s: ChatSession) => s.id === second.id));
+  const archived = await browser.json(
+    `/user/agent/chat/sessions/${second.id}/settings`,
+    {
+      revision: renamed.revision,
+      archived: true,
+    },
+  );
+  assert.equal(
+    (
+      await browser.request(`/user/agent/chat/sessions/${second.id}/messages`, {
+        text: "must not run",
+      })
+    ).status,
+    409,
+  );
+  const activeHistory = await browser.json(
+    `/user/agent/chat/sessions?projectId=${projectId}`,
+  );
+  assert.ok(!activeHistory.some((s: ChatSession) => s.id === second.id));
+  const archivedHistory = await browser.json(
+    `/user/agent/chat/sessions?projectId=${projectId}&archived=1`,
+  );
+  assert.ok(archivedHistory.some((s: ChatSession) => s.id === second.id));
+  const restored = await browser.json(
+    `/user/agent/chat/sessions/${second.id}/settings`,
+    {
+      revision: archived.revision,
+      archived: false,
+    },
+  );
+  assert.deepEqual(restored.messages, second.messages);
   const config = JSON.parse(await readFile(`${directory}/config.json`, "utf8"));
   for (const secret of [pairing.code, config.credential, config.mcpUrl])
     assert.ok(!output.includes(secret));
@@ -201,6 +267,7 @@ try {
       replayed: false,
       prompts: 2,
       downloadedConnector: true,
+      conversationManagement: true,
     }),
   );
 } finally {

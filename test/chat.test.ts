@@ -49,6 +49,15 @@ function fixture() {
     async finish() {},
   };
   const backend: Backend = {
+    async createFolder() {
+      return {};
+    },
+    async createFile() {
+      return {};
+    },
+    async deleteFile() {
+      return {};
+    },
     async user(id) {
       return { id, name: id, email: id + "@example.invalid" };
     },
@@ -95,9 +104,26 @@ function fixture() {
         .filter((c) => c.userId === user)
         .map((c) => structuredClone(c));
     },
-    async sessions(user, projectId) {
+    async sessions(user, projectId, query = {}) {
       return [...data.sessions.values()]
-        .filter((s) => s.userId === user && s.projectId === projectId)
+        .filter(
+          (s) =>
+            s.userId === user &&
+            s.projectId === projectId &&
+            Boolean(s.archivedAt) === Boolean(query.archived) &&
+            s.messages.some((m) => m.role === "user") &&
+            (!query.connectionId || s.connectionId === query.connectionId) &&
+            (!query.search ||
+              s.title.toLowerCase().includes(query.search.toLowerCase())) &&
+            (!query.before ||
+              s.updatedAt < query.before ||
+              (s.updatedAt === query.before && s.id < query.beforeId!)),
+        )
+        .sort(
+          (a, b) =>
+            b.updatedAt.localeCompare(a.updatedAt) || b.id.localeCompare(a.id),
+        )
+        .slice(0, 30)
         .map((s) => structuredClone(s));
     },
     async saveSession(value, revision) {
@@ -120,8 +146,8 @@ function fixture() {
   };
   const agent = new AgentService(agentStore, backend, "http://localhost:18080"),
     chat = new ChatService(store, agent);
-  async function paired() {
-    const p = await chat.createPairing("alice", { projects: [project] });
+  async function paired(name = "Fixture Agent") {
+    const p = await chat.createPairing("alice", { projects: [project], name });
     return {
       code: p.code,
       ...(await chat.pair({ code: p.code, runtime: "fixture" })),
@@ -144,7 +170,7 @@ test("pairing is one-time, project scoped; rotation invalidates both channels", 
     c = await f.paired();
   await assert.rejects(
     f.chat.pair({ code: c.code, runtime: "again" }),
-    /配对码/,
+    /pairing code/,
   );
   await assert.rejects(
     f.chat.createSession("bob", {
@@ -157,11 +183,11 @@ test("pairing is one-time, project scoped; rotation invalidates both channels", 
       connectionId: c.connectionId,
       projectId: "222222222222222222222222",
     }),
-    /未授权/,
+    /not authorized/,
   );
   const { connection } = await f.chat.authenticate(c.credential);
   await f.agent.rotate("alice", connection.grantId);
-  await assert.rejects(f.chat.authenticate(c.credential), /重置/);
+  await assert.rejects(f.chat.authenticate(c.credential), /reset/);
 });
 test("sessions isolate users, serialize prompts, preserve events and do not replay after reconnect", async () => {
   const f = fixture(),
@@ -179,12 +205,12 @@ test("sessions isolate users, serialize prompts, preserve events and do not repl
     connectionId: c.connectionId,
     projectId: project,
   });
-  await assert.rejects(f.chat.session("bob", s.id), /不存在/);
+  await assert.rejects(f.chat.session("bob", s.id), /not found/);
   await f.chat.prompt("alice", s.id, { text: "edit" });
   const run = (commands[0] as Extract<BridgeCommand, { type: "prompt" }>).runId;
   await assert.rejects(
     f.chat.prompt("alice", s.id, { text: "duplicate" }),
-    /当前任务/,
+    /current task/,
   );
   await f.chat.event(c.credential, {
     sessionId: s.id,
@@ -219,7 +245,7 @@ test("sessions isolate users, serialize prompts, preserve events and do not repl
       runId: run,
       event: { type: "done", reason: "completed" },
     }),
-    /中断/,
+    /interrupted/,
   );
   assert.equal(
     (await f.chat.session("alice", s.id)).messages.find(
@@ -259,7 +285,7 @@ test("permission replies and cancellation bind the active run; revocation and AC
   });
   await assert.rejects(
     f.chat.permission("alice", s.id, { permissionId: "p", optionId: "forged" }),
-    /失效/,
+    /no longer active/,
   );
   await f.chat.permission("alice", s.id, {
     permissionId: "p",
@@ -275,7 +301,7 @@ test("permission replies and cancellation bind the active run; revocation and AC
   });
   assert.equal((await f.chat.session("alice", s.id)).runId, null);
   f.removeAccess();
-  await assert.rejects(f.chat.session("alice", s.id), /访问权限/);
+  await assert.rejects(f.chat.session("alice", s.id), /no longer have access/);
   await f.chat.revoke("alice", c.connectionId);
   await assert.rejects(f.chat.authenticate(c.credential));
   await assert.rejects(
@@ -297,8 +323,23 @@ test("connection prepares a scoped conversation and readiness is isolated by con
     true,
   );
   await f.chat.prepareConnection(c.credential);
-  const [session] = await f.chat.sessions("alice", project);
+  assert.equal(
+    f.data.sessions.size,
+    0,
+    "connecting alone must not create empty conversations",
+  );
+  const session = await f.chat.createSession("alice", {
+    projectId: project,
+    connectionId: c.connectionId,
+  });
   assert.equal(commands[0].type, "prepare");
+  assert.equal((await f.chat.sessions("alice", project)).length, 0);
+  const stored = f.data.sessions.get(session.id)!;
+  stored.messages.push({
+    id: "first",
+    role: "user",
+    text: "Existing conversation",
+  });
   assert.equal(
     (await f.chat.session("alice", session.id)).agentState,
     "preparing",
@@ -312,9 +353,15 @@ test("connection prepares a scoped conversation and readiness is isolated by con
   );
   await assert.rejects(
     f.chat.prepared(other.credential, { sessionId: session.id }),
-    /会话不存在/,
+    /session not found/i,
   );
-  await f.chat.prepared(c.credential, { sessionId: session.id });
+  await f.chat.prepared(c.credential, {
+    sessionId: session.id,
+    recovery: { mode: "resumed" },
+  });
+  assert.deepEqual((await f.chat.session("alice", session.id)).recovery, {
+    mode: "resumed",
+  });
   assert.equal((await f.chat.session("alice", session.id)).agentState, "ready");
   await attached.disconnect();
   await f.chat.attach(
@@ -329,6 +376,7 @@ test("connection prepares a scoped conversation and readiness is isolated by con
   await f.chat.prepareConnection(c.credential);
   assert.equal((await f.chat.sessions("alice", project)).length, 1);
   assert.equal(commands[1].type, "prepare");
+  assert.equal((await f.chat.session("alice", session.id)).recovery, undefined);
   await f.chat.prepared(c.credential, {
     sessionId: session.id,
     error: "Please log in locally",
@@ -397,9 +445,194 @@ test("connection status distinguishes other project scopes without granting acce
         projectId: other,
         connectionId: c.connectionId,
       }),
-      /未授权/,
+      /not authorized/,
     );
   } finally {
     await live.disconnect();
   }
+});
+
+test("conversation management keeps history, enforces ownership and archives without deletion", async () => {
+  const f = fixture(),
+    c = await f.paired();
+  await f.chat.attach(
+    c.credential,
+    () => true,
+    () => {},
+  );
+  const initial = await f.chat.createSession("alice", {
+    projectId: project,
+    connectionId: c.connectionId,
+  });
+  await f.chat.prompt("alice", initial.id, { text: "Review equations" });
+  let session = await f.chat.session("alice", initial.id);
+  await assert.rejects(
+    f.chat.updateSession("alice", session.id, {
+      revision: session.revision,
+      archived: true,
+    }),
+    /Stop the current task/,
+  );
+  await f.chat.event(c.credential, {
+    sessionId: session.id,
+    runId: session.runId,
+    event: { type: "done", reason: "completed" },
+  });
+  session = await f.chat.session("alice", initial.id);
+  await assert.rejects(
+    f.chat.updateSession("bob", session.id, {
+      revision: session.revision,
+      title: "stolen",
+    }),
+    /not found/,
+  );
+  await assert.rejects(
+    f.chat.updateSession("alice", session.id, { revision: 0, title: "stale" }),
+    /has changed/,
+  );
+  await assert.rejects(
+    f.chat.updateSession("alice", session.id, {
+      revision: session.revision,
+      title: "   ",
+    }),
+  );
+  const renamed = await f.chat.updateSession("alice", session.id, {
+    revision: session.revision,
+    title: "  Equation review  ",
+  });
+  assert.equal(renamed.title, "Equation review");
+  const archived = await f.chat.updateSession("alice", session.id, {
+    revision: renamed.revision,
+    archived: true,
+  });
+  assert.deepEqual(archived.messages, session.messages);
+  assert.equal((await f.chat.sessions("alice", project)).length, 0);
+  assert.equal(
+    (
+      await f.chat.sessions("alice", project, {
+        archived: "1",
+        search: "review",
+      })
+    )[0].id,
+    session.id,
+  );
+  await assert.rejects(
+    f.chat.prompt("alice", session.id, { text: "continue" }),
+    /archived/,
+  );
+  await f.chat.updateSession("alice", session.id, {
+    revision: archived.revision,
+    archived: false,
+  });
+  assert.equal((await f.chat.sessions("alice", project))[0].id, session.id);
+  f.removeAccess();
+  await assert.rejects(
+    f.chat.updateSession("alice", session.id, {
+      revision: archived.revision + 1,
+      title: "no",
+    }),
+    /no longer have access/,
+  );
+});
+
+test("a conversation can change authorized connectors without accepting old readiness or replaying a task", async () => {
+  const f = fixture(),
+    a = await f.paired("Agent A"),
+    b = await f.paired("Agent B"),
+    legacy = await f.paired();
+  const commands: BridgeCommand[] = [];
+  await f.chat.attach(
+    a.credential,
+    (x) => (commands.push(x), true),
+    () => {},
+    true,
+    true,
+  );
+  await f.chat.attach(
+    b.credential,
+    (x) => (commands.push(x), true),
+    () => {},
+    true,
+    true,
+  );
+  await f.chat.attach(
+    legacy.credential,
+    () => true,
+    () => {},
+    true,
+  );
+  const initial = await f.chat.createSession("alice", {
+    projectId: project,
+    connectionId: a.connectionId,
+  });
+  f.data.sessions
+    .get(initial.id)!
+    .messages.push({ id: "m", role: "user", text: "Keep this history" });
+  f.data.sessions
+    .get(initial.id)!
+    .messages.push({ id: "reply", role: "assistant", text: "Original answer" });
+  await assert.rejects(
+    f.chat.updateSession("alice", initial.id, {
+      revision: 0,
+      connectionId: legacy.connectionId,
+    }),
+    /latest connector/,
+  );
+  const moved = await f.chat.updateSession("alice", initial.id, {
+    revision: 0,
+    connectionId: b.connectionId,
+  });
+  assert.equal(moved.id, initial.id);
+  assert.equal(moved.messages[0].text, "Keep this history");
+  assert.equal(moved.bindingVersion, 1);
+  assert.equal(
+    moved.messages.find((m) => m.id === "reply")?.actorName,
+    "Agent A",
+  );
+  assert.equal(commands.at(-1)?.type, "prepare");
+  assert.equal(commands.filter((c) => c.type === "prompt").length, 0);
+  await assert.rejects(
+    f.chat.prepared(a.credential, { sessionId: initial.id }),
+    /not found/,
+  );
+  await f.chat.prepared(b.credential, {
+    sessionId: initial.id,
+    bindingVersion: 1,
+  });
+  const ready = await f.chat.session("alice", initial.id);
+  const returned = await f.chat.updateSession("alice", initial.id, {
+    revision: ready.revision,
+    connectionId: a.connectionId,
+  });
+  assert.equal(returned.bindingVersion, 2);
+  await assert.rejects(
+    f.chat.prepared(a.credential, { sessionId: initial.id, bindingVersion: 0 }),
+    /not found/,
+  );
+  await f.chat.prepared(a.credential, {
+    sessionId: initial.id,
+    bindingVersion: 2,
+  });
+  await f.chat.prompt("alice", initial.id, { text: "continue" });
+  const running = await f.chat.session("alice", initial.id);
+  await assert.rejects(
+    f.chat.updateSession("alice", initial.id, {
+      revision: running.revision,
+      connectionId: b.connectionId,
+    }),
+    /Stop the current task/,
+  );
+  await assert.rejects(
+    f.chat.event(b.credential, {
+      sessionId: initial.id,
+      runId: running.runId,
+      event: { type: "done", reason: "completed" },
+    }),
+    /not found/,
+  );
+  assert.equal(
+    (commands.at(-1) as Extract<BridgeCommand, { type: "prompt" }>)
+      .bindingVersion,
+    2,
+  );
 });

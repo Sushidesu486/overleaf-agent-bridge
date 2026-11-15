@@ -1,0 +1,33 @@
+extends ../../../../app/views/layout-website-redesign
+
+block vars
+	- isWebsiteRedesign = true
+
+block content
+	main#main-content.content
+		.container
+			.row
+				.col-lg-6.offset-lg-3.col-xl-4.offset-xl-4
+					.page-header
+						h1 Set your password
+					p Verify your email address and create your #{settings.appName} account.
+					if typeof error !== 'undefined' && error
+						.alert.alert-danger(role='alert')= error
+					form(action='/signup/verify' method='POST' data-site-verify)
+						input(name='_csrf' type='hidden' value=csrfToken)
+						input(name='token' type='hidden' value=typeof token !== 'undefined' ? token : '')
+						.form-group
+							label(for='new-password') Password
+							input#new-password.form-control(name='password' type='password' autocomplete='new-password' minlength='8' maxlength='72' required)
+							.form-text Use 8–72 characters with letters, numbers or common symbols. Avoid including your email address.
+						.form-group
+							label(for='confirm-password') Confirm password
+							input#confirm-password.form-control(name='passwordConfirm' type='password' autocomplete='new-password' minlength='8' maxlength='72' required)
+						button.btn.btn-primary.w-100.mb-3(type='submit' data-site-submit) Create account and sign in
+					p.text-center
+						a(href='/register') Request another verification email
+						| #{' · '}
+						a(href='/login') Already have an account? Sign in
+
+block append foot-scripts
+	script(src='/site-access.js' nonce=scriptNonce defer)

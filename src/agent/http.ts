@@ -8,6 +8,10 @@ import {
   editInput,
   objectId,
   compileLogInput,
+  createFileInput,
+  createFolderInput,
+  deleteFileInput,
+  maxMcpRequestBytes,
 } from "./service.js";
 export { AgentService, AgentError, publicGrant } from "./service.js";
 import { compileWorkflow } from "./compilation.js";
@@ -21,10 +25,11 @@ export function errorResponse(error: unknown) {
   return error instanceof AgentError
     ? { code: error.code, message: error.message }
     : error instanceof z.ZodError
-      ? { code: "INVALID_INPUT", message: "请求参数不正确" }
+      ? { code: "INVALID_INPUT", message: "Invalid request parameters" }
       : {
           code: "RESULT_UNKNOWN",
-          message: "请求未能完成；写入操作请重新读取文档确认结果",
+          message:
+            "The request could not be completed. Refresh the project tree and read affected documents to confirm the result. Do not replay an unconfirmed write.",
         };
 }
 export async function handleMcp(
@@ -64,7 +69,7 @@ export async function handleMcp(
       ],
       [
         "overleaf_get_project_tree",
-        "List documents, files, rootDocId and compiler settings in a project.",
+        "List documents, attachments, folders (including rootFolderId), paths, rootDocId and compiler settings in a project.",
         { projectId: objectId },
       ],
       [
@@ -76,6 +81,21 @@ export async function handleMcp(
         "overleaf_edit_document",
         "Replace one uniquely matching text span at the expected document version. Use a fresh UUID operationId. On unknown results, read again; do not replay.",
         editInput.shape,
+      ],
+      [
+        "overleaf_create_folder",
+        "Create one folder in the project root or an existing parentFolderId from a fresh project tree. Use a single name, not a path. Returns folderId for creating files or further subfolders. Existing file or folder names are never overwritten. Requires edit access. Use a fresh UUID operationId; dryRun validates without writing. Refresh the tree after unknown results; do not replay.",
+        createFolderInput.shape,
+      ],
+      [
+        "overleaf_create_file",
+        "Create a file without overwriting an existing name. Use utf8 for editable text (.tex, .bib), limited to 2 MB. Use base64 for attachments (JPG, PNG, SVG, PDF), limited to 50 MB decoded; upload SVG as an attachment even though its source is text. folderId defaults to the root; obtain nested folder IDs from the project tree. Use a fresh UUID operationId; dryRun validates without writing. Refresh the tree after unknown results; do not replay.",
+        createFileInput.shape,
+      ],
+      [
+        "overleaf_delete_file",
+        "Delete one document or attachment by fileId and its exact expectedPath from a fresh project tree. Deletion removes the current file, including edits since your last read; review it first. Folders are not supported. Use a fresh UUID operationId; dryRun previews without deleting. Refresh the tree after unknown results; do not replay.",
+        deleteFileInput.shape,
       ],
       [
         "overleaf_compile",
@@ -97,9 +117,12 @@ export async function handleMcp(
           annotations: {
             readOnlyHint: ![
               "overleaf_edit_document",
+              "overleaf_create_file",
+              "overleaf_create_folder",
+              "overleaf_delete_file",
               "overleaf_compile",
             ].includes(name),
-            destructiveHint: false,
+            destructiveHint: name === "overleaf_delete_file",
           },
         },
         async (args: unknown) => {
@@ -131,6 +154,7 @@ export async function handleMcp(
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,
+      maxRequestBodySize: maxMcpRequestBytes,
     });
     res.on("close", () => {
       void server?.close();

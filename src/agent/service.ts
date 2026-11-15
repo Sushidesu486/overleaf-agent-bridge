@@ -11,6 +11,92 @@ export class AgentError extends Error {
   }
 }
 export const objectId = z.string().regex(/^[a-f0-9]{24}$/);
+export const maxFileBytes = 50_000_000;
+export const maxTextFileBytes = 2_000_000;
+// Base64 adds roughly one third to the attachment size, plus the JSON envelope.
+export const maxMcpRequestBytes = 72 * 1024 * 1024;
+export const createFileInput = z
+  .object({
+    projectId: objectId,
+    folderId: objectId.nullable().default(null),
+    name: z
+      .string()
+      .min(1)
+      .max(149)
+      .refine(
+        (name) =>
+          !/[\/\\*\u0000-\u001f\u007f-\u009f\uD800-\uDFFF]/.test(name) &&
+          name.trim() === name &&
+          ![".", "..", "prototype"].includes(name) &&
+          !Object.prototype.hasOwnProperty.call(Object.prototype, name),
+        "Use a single valid file or folder name",
+      ),
+    content: z
+      .string()
+      .max(Math.ceil(maxFileBytes / 3) * 4)
+      .default(""),
+    encoding: z.enum(["utf8", "base64"]).default("utf8"),
+    operationId: z.string().uuid(),
+    dryRun: z.boolean().default(false),
+  })
+  .strict();
+export const createFolderInput = z
+  .object({
+    projectId: objectId,
+    parentFolderId: objectId.nullable().default(null),
+    name: createFileInput.shape.name,
+    operationId: createFileInput.shape.operationId,
+    dryRun: createFileInput.shape.dryRun,
+  })
+  .strict();
+export const deleteFileInput = z
+  .object({
+    projectId: objectId,
+    fileId: objectId,
+    expectedPath: z.string().min(2).max(1024).startsWith("/"),
+    operationId: z.string().uuid(),
+    dryRun: z.boolean().default(false),
+  })
+  .strict();
+export type CreateFileInput = z.infer<typeof createFileInput>;
+export type CreateFolderInput = z.infer<typeof createFolderInput>;
+export type DeleteFileInput = z.infer<typeof deleteFileInput>;
+
+function prepareCreateFile(args: CreateFileInput) {
+  let bytes: Buffer;
+  if (args.encoding === "base64") {
+    if (Buffer.byteLength(args.content, "base64") > maxFileBytes)
+      throw new AgentError(
+        "FILE_TOO_LARGE",
+        "The attachment exceeds the 50 MB limit",
+      );
+    bytes = Buffer.from(args.content, "base64");
+    if (bytes.toString("base64") !== args.content)
+      throw new AgentError(
+        "INVALID_BASE64",
+        "Use canonical Base64 without whitespace or a data URL prefix",
+      );
+  } else {
+    args.content = args.content.replace(/\r\n?/g, "\n");
+    if (Buffer.byteLength(args.content, "utf8") > maxTextFileBytes)
+      throw new AgentError(
+        "FILE_TOO_LARGE",
+        "Editable text exceeds the 2 MB limit. Upload images (including SVG) as Base64 attachments, up to 50 MB.",
+      );
+    if (/[\u0000\uD800-\uDFFF]/u.test(args.content))
+      throw new AgentError(
+        "INVALID_TEXT",
+        "Text must not contain NUL or incomplete Unicode characters",
+      );
+    bytes = Buffer.from(args.content, "utf8");
+  }
+  return {
+    folderId: args.folderId,
+    name: args.name,
+    encoding: args.encoding,
+    contentDigest: createHash("sha256").update(bytes).digest("hex"),
+  };
+}
 export const compileLogInput = z
   .object({
     projectId: objectId,
@@ -26,7 +112,7 @@ export const compileLogInput = z
 export const action = z.enum(["read", "edit", "compile"]);
 export const grantInput = z
   .object({
-    name: z.string().trim().min(1).max(60).default("我的 Agent"),
+    name: z.string().trim().min(1).max(60).default("My Agent"),
     projects: z.array(objectId).max(200).nullable().default(null),
     actions: z.array(action).min(1).default(["read", "edit", "compile"]),
   })
@@ -47,8 +133,16 @@ export type Operation = {
   grantId: string;
   userId: string;
   projectId: string;
-  docId: string;
-  beforeVersion: number;
+  kind?: "edit_document" | "create_file" | "create_folder" | "delete_file";
+  docId?: string;
+  beforeVersion?: number;
+  fileId?: string;
+  folderId?: string | null;
+  parentFolderId?: string | null;
+  name?: string;
+  expectedPath?: string;
+  encoding?: string;
+  contentDigest?: string;
   state: string;
   result?: unknown;
 };
@@ -67,6 +161,24 @@ export interface Backend {
   projects(userId: string): Promise<Project[]>;
   privilege(userId: string, projectId: string): Promise<string | false>;
   tree(projectId: string): Promise<unknown>;
+  createFolder(
+    projectId: string,
+    userId: string,
+    args: CreateFolderInput,
+    authorize: () => Promise<void>,
+  ): Promise<unknown>;
+  createFile(
+    projectId: string,
+    userId: string,
+    args: CreateFileInput,
+    authorize: () => Promise<void>,
+  ): Promise<unknown>;
+  deleteFile(
+    projectId: string,
+    userId: string,
+    args: DeleteFileInput,
+    authorize: () => Promise<void>,
+  ): Promise<unknown>;
   read(projectId: string, docId: string): Promise<Doc>;
   edit(
     projectId: string,
@@ -123,15 +235,15 @@ export class AgentService {
   }
   async issue(userId: string, input: unknown) {
     if (!(await this.backend.user(userId)))
-      throw new AgentError("ACCESS_DENIED", "账号不可用", 403);
+      throw new AgentError("ACCESS_DENIED", "This account is unavailable", 403);
     const data = grantInput.parse(input);
     if (!data.actions.includes("read")) data.actions.unshift("read");
     const existing = await this.store.list(userId);
     if (existing.filter((g) => !g.revokedAt).length >= 20)
-      throw new AgentError("LINK_LIMIT", "最多保留 20 条有效链接");
+      throw new AgentError("LINK_LIMIT", "You can keep up to 20 active links");
     if (data.projects !== null) {
       if (!data.projects.length)
-        throw new AgentError("EMPTY_PROJECTS", "请至少选择一个项目");
+        throw new AgentError("EMPTY_PROJECTS", "Select at least one project");
       for (const id of data.projects)
         await this.checkPrivilege(userId, id, "read");
     }
@@ -152,19 +264,23 @@ export class AgentService {
     objectId.parse(id);
     const secret = randomBytes(32).toString("base64url");
     if (!(await this.store.rotate(id, userId, digest(secret))))
-      throw new AgentError("NOT_FOUND", "有效链接不存在", 404);
+      throw new AgentError("NOT_FOUND", "Active link not found", 404);
     return { url: this.url(id, secret) };
   }
   async revoke(userId: string, id: string) {
     objectId.parse(id);
     if (!(await this.store.revoke(id, userId)))
-      throw new AgentError("NOT_FOUND", "链接不存在", 404);
+      throw new AgentError("NOT_FOUND", "Link not found", 404);
     return { revoked: true };
   }
   async authenticate(credential: string) {
     const match = /^([a-f0-9]{24})\.([A-Za-z0-9_-]{43})$/.exec(credential);
     if (!match)
-      throw new AgentError("INVALID_LINK", "MCP 链接无效或已停用", 401);
+      throw new AgentError(
+        "INVALID_LINK",
+        "This MCP link is invalid or has been disabled",
+        401,
+      );
     const grant = await this.store.get(match[1]);
     if (
       !grant ||
@@ -174,15 +290,21 @@ export class AgentService {
         Buffer.from(digest(match[2]), "hex"),
       )
     )
-      throw new AgentError("INVALID_LINK", "MCP 链接无效或已停用", 401);
+      throw new AgentError(
+        "INVALID_LINK",
+        "This MCP link is invalid or has been disabled",
+        401,
+      );
     const user = await this.backend.user(grant.userId);
-    if (!user) throw new AgentError("ACCESS_DENIED", "账号不可用", 403);
+    if (!user)
+      throw new AgentError("ACCESS_DENIED", "This account is unavailable", 403);
     await this.store.touch(grant.id, grant.digest);
     return { grant, user };
   }
   async state(userId: string) {
     const user = await this.backend.user(userId);
-    if (!user) throw new AgentError("ACCESS_DENIED", "账号不可用", 403);
+    if (!user)
+      throw new AgentError("ACCESS_DENIED", "This account is unavailable", 403);
     return {
       user,
       grants: (await this.store.list(userId)).map(publicGrant),
@@ -199,16 +321,28 @@ export class AgentService {
       !level ||
       (required === "edit" && level !== "owner" && level !== "readAndWrite")
     )
-      throw new AgentError("ACCESS_DENIED", "当前账号没有对应项目权限", 403);
+      throw new AgentError(
+        "ACCESS_DENIED",
+        "Your account does not have access to this project",
+        403,
+      );
   }
   async execute(credential: string, name: string, input: unknown) {
     const { grant, user } = await this.authenticate(credential);
     if (name === "overleaf_whoami")
       return {
         user,
-        connectionLabel: `${user.name} 的 Agent`,
+        connectionLabel: `${user.name}'s agent`,
         grant: publicGrant(grant),
-        capabilities: { editing: true, presenceLabel: false },
+        capabilities: {
+          editing: true,
+          fileCreation: true,
+          folderCreation: true,
+          fileDeletion: true,
+          maxFileBytes,
+          maxTextFileBytes,
+          presenceLabel: false,
+        },
       };
     if (name === "overleaf_list_projects") {
       const projects = await this.backend.projects(user.id);
@@ -217,18 +351,98 @@ export class AgentService {
       );
     }
     const { projectId } = z.object({ projectId: objectId }).parse(input);
-    const required =
-      name === "overleaf_edit_document"
-        ? "edit"
-        : name === "overleaf_compile"
-          ? "compile"
-          : "read";
+    const required = [
+      "overleaf_edit_document",
+      "overleaf_create_file",
+      "overleaf_create_folder",
+      "overleaf_delete_file",
+    ].includes(name)
+      ? "edit"
+      : name === "overleaf_compile"
+        ? "compile"
+        : "read";
     if (
       !grant.actions.includes(required) ||
       (grant.projects !== null && !grant.projects.includes(projectId))
     )
-      throw new AgentError("OUTSIDE_GRANT", "操作超出此链接的授权范围", 403);
+      throw new AgentError(
+        "OUTSIDE_GRANT",
+        "This action is outside the scope of this link",
+        403,
+      );
     await this.checkPrivilege(user.id, projectId, required);
+    if (
+      name === "overleaf_create_file" ||
+      name === "overleaf_create_folder" ||
+      name === "overleaf_delete_file"
+    ) {
+      const authorize = async () => {
+        await this.authenticate(credential);
+        await this.checkPrivilege(user.id, projectId, "edit");
+      };
+      const kind =
+        name === "overleaf_create_folder"
+          ? "create_folder"
+          : name === "overleaf_create_file"
+            ? "create_file"
+            : "delete_file";
+      const args =
+        kind === "create_folder"
+          ? createFolderInput.parse(input)
+          : kind === "create_file"
+            ? createFileInput.parse(input)
+            : deleteFileInput.parse(input);
+      const details =
+        "content" in args
+          ? prepareCreateFile(args)
+          : "parentFolderId" in args
+            ? { parentFolderId: args.parentFolderId, name: args.name }
+            : { fileId: args.fileId, expectedPath: args.expectedPath };
+      const perform = () =>
+        "content" in args
+          ? this.backend.createFile(projectId, user.id, args, authorize)
+          : "parentFolderId" in args
+            ? this.backend.createFolder(projectId, user.id, args, authorize)
+            : this.backend.deleteFile(projectId, user.id, args, authorize);
+      if (args.dryRun)
+        return { dryRun: true, projectId, result: await perform() };
+      const operationId = `${grant.id}:${args.operationId}`;
+      if (
+        !(await this.store.begin({
+          id: operationId,
+          grantId: grant.id,
+          userId: user.id,
+          projectId,
+          kind,
+          ...details,
+          state: "pending",
+        }))
+      )
+        throw new AgentError(
+          "OPERATION_ALREADY_SUBMITTED",
+          "This operation has already been submitted. Refresh the project tree to confirm the result.",
+          409,
+        );
+      try {
+        const result = {
+          submitted: true,
+          projectId,
+          operationId: args.operationId,
+          result: await perform(),
+        };
+        await this.store.finish(operationId, "submitted", result);
+        return result;
+      } catch (error) {
+        const code =
+          error instanceof AgentError ? error.code : "RESULT_UNKNOWN";
+        await this.store.finish(
+          operationId,
+          code === "RESULT_UNKNOWN" ? "unknown" : "rejected",
+          { code },
+        );
+        throw error;
+      }
+    }
     if (name === "overleaf_get_project_tree")
       return this.backend.tree(projectId);
     if (name === "overleaf_compile")
@@ -252,18 +466,25 @@ export class AgentService {
     if (args.expectedVersion !== doc.version)
       throw new AgentError(
         "VERSION_CONFLICT",
-        "文档已变化，请重新读取后生成修改",
+        "The document has changed. Read it again before preparing an edit.",
         409,
       );
     const index = doc.content.indexOf(args.oldText);
     if (index < 0 || doc.content.indexOf(args.oldText, index + 1) !== -1)
-      throw new AgentError("TEXT_CONFLICT", "旧文本需要在文档中唯一匹配", 409);
+      throw new AgentError(
+        "TEXT_CONFLICT",
+        "The original text must match exactly one location in the document",
+        409,
+      );
     const content =
       doc.content.slice(0, index) +
       args.newText +
       doc.content.slice(index + args.oldText.length);
-    if (Buffer.byteLength(content) > 2_000_000)
-      throw new AgentError("DOCUMENT_TOO_LARGE", "文档超出 2 MB 限制");
+    if (Buffer.byteLength(content) > maxTextFileBytes)
+      throw new AgentError(
+        "DOCUMENT_TOO_LARGE",
+        "The document exceeds the 2 MB limit",
+      );
     if (args.dryRun)
       return {
         dryRun: true,
@@ -280,13 +501,14 @@ export class AgentService {
         userId: user.id,
         projectId,
         docId,
+        kind: "edit_document",
         beforeVersion: doc.version,
         state: "pending",
       }))
     )
       throw new AgentError(
         "OPERATION_ALREADY_SUBMITTED",
-        "此操作已提交，请重新读取文档确认结果",
+        "This operation has already been submitted. Read the document again to confirm the result.",
         409,
       );
     try {

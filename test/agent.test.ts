@@ -6,6 +6,8 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import {
   AgentError,
+  maxFileBytes,
+  maxTextFileBytes,
   AgentService,
   type Grant,
   type Operation,
@@ -56,6 +58,15 @@ function fixture() {
     },
   };
   const backend: Backend = {
+    async createFolder() {
+      return {};
+    },
+    async createFile() {
+      return {};
+    },
+    async deleteFile() {
+      return {};
+    },
     async user(id) {
       return { id, name: id, email: `${id}@example.invalid` };
     },
@@ -107,13 +118,13 @@ test("personal links bind identity, enforce scope, rotate/revoke and current pro
     !JSON.stringify([...f.grants.values()]).includes(credential.split(".")[1]),
   );
   assert.ok(!JSON.stringify(await f.service.state("alice")).includes("digest"));
-  await assert.rejects(f.service.rotate("bob", issued.grant.id), /不存在/);
+  await assert.rejects(f.service.rotate("bob", issued.grant.id), /not found/);
   await assert.rejects(
     f.service.execute(credential, "overleaf_compile", { projectId }),
-    /授权范围/,
+    /outside the scope/,
   );
   const next = await f.service.rotate("alice", issued.grant.id);
-  await assert.rejects(f.service.authenticate(credential), /无效/);
+  await assert.rejects(f.service.authenticate(credential), /invalid/);
   assert.equal((await f.service.authenticate(key(next.url))).user.id, "alice");
   f.removeAccess();
   await assert.rejects(
@@ -121,10 +132,10 @@ test("personal links bind identity, enforce scope, rotate/revoke and current pro
       projectId,
       docId,
     }),
-    /项目权限/,
+    /does not have access/,
   );
   await f.service.revoke("alice", issued.grant.id);
-  await assert.rejects(f.service.authenticate(key(next.url)), /无效/);
+  await assert.rejects(f.service.authenticate(key(next.url)), /invalid/);
 });
 test("edits support Unicode, reject stale versions, reserve operation IDs, and keep unknown outcomes", async () => {
   const f = fixture();
@@ -149,7 +160,7 @@ test("edits support Unicode, reject stale versions, reserve operation IDs, and k
   );
   await assert.rejects(
     f.service.execute(credential, "overleaf_edit_document", args),
-    /文档已变化/,
+    /document has changed/,
   );
   const retry = {
     ...args,
@@ -159,7 +170,7 @@ test("edits support Unicode, reject stale versions, reserve operation IDs, and k
   };
   await assert.rejects(
     f.service.execute(credential, "overleaf_edit_document", retry),
-    /已提交/,
+    /already been submitted/,
   );
   f.backend.edit = async () => {
     throw new Error("simulated dropped response");
@@ -171,7 +182,7 @@ test("edits support Unicode, reject stale versions, reserve operation IDs, and k
   assert.equal([...f.operations.values()].at(-1)?.state, "unknown");
   await assert.rejects(
     f.service.execute(credential, "overleaf_edit_document", op),
-    /已提交/,
+    /already been submitted/,
   );
 });
 test("real HTTP MCP client uses only its URL; origin checks and revocation apply after initialization", async (t) => {
@@ -201,7 +212,18 @@ test("real HTTP MCP client uses only its URL; origin checks and revocation apply
   const client = new Client({ name: "fixture", version: "1" });
   t.after(() => client.close());
   await client.connect(new StreamableHTTPClientTransport(url));
-  assert.equal((await client.listTools()).tools.length, 7);
+  const tools = (await client.listTools()).tools;
+  assert.equal(tools.length, 10);
+  assert.equal(
+    tools.find((t) => t.name === "overleaf_create_folder")?.annotations
+      ?.readOnlyHint,
+    false,
+  );
+  const folder = await client.callTool({
+    name: "overleaf_create_folder",
+    arguments: { projectId, name: "sections", operationId: randomUUID() },
+  });
+  assert.ok(!folder.isError);
   const result = await client.callTool({
     name: "overleaf_whoami",
     arguments: {},
@@ -241,7 +263,7 @@ test("revocation during backend preparation stops the pending edit before submis
       newText: "Changed.",
       operationId: randomUUID(),
     }),
-    /无效/,
+    /invalid/,
   );
   assert.equal(submitted, false);
   assert.equal((await f.backend.read(projectId, docId)).version, 3);
@@ -275,7 +297,7 @@ test("compile-log reads require current project access, bind identity, and reche
       ...args,
       projectId: "333333333333333333333333",
     }),
-    /授权范围/,
+    /outside the scope/,
   );
   f.backend.compileLog = async () => {
     await f.service.revoke("alice", link.grant.id);
@@ -283,6 +305,260 @@ test("compile-log reads require current project access, bind identity, and reche
   };
   await assert.rejects(
     f.service.execute(key(link.url), "overleaf_get_compile_log", args),
-    /无效/,
+    /invalid/,
   );
+});
+
+test("folder creation supports root/nested targets, dry runs and write journaling", async () => {
+  const f = fixture();
+  const credential = key((await f.service.issue("alice", {})).url);
+  let received: unknown;
+  f.backend.createFolder = async (_project, user, args, authorize) => {
+    await authorize();
+    assert.equal(user, "alice");
+    received = args.parentFolderId;
+    return { id: docId, folderId: docId, path: "/章节/", type: "folder" };
+  };
+  const args = { projectId, name: "章节", operationId: randomUUID() };
+  await f.service.execute(credential, "overleaf_create_folder", {
+    ...args,
+    dryRun: true,
+  });
+  assert.equal(received, null);
+  assert.equal(f.operations.size, 0);
+  await f.service.execute(credential, "overleaf_create_folder", {
+    ...args,
+    parentFolderId: docId,
+  });
+  assert.equal(received, docId);
+  assert.equal([...f.operations.values()][0].kind, "create_folder");
+  assert.equal([...f.operations.values()][0].parentFolderId, docId);
+  await assert.rejects(
+    f.service.execute(credential, "overleaf_create_folder", args),
+    { code: "OPERATION_ALREADY_SUBMITTED" },
+  );
+  for (const name of [
+    "../outside",
+    "a/b",
+    "a\\b",
+    "__proto__",
+    "constructor",
+    " a",
+    "",
+    ".",
+    "..",
+  ])
+    await assert.rejects(
+      f.service.execute(credential, "overleaf_create_folder", {
+        ...args,
+        name,
+        operationId: randomUUID(),
+      }),
+    );
+  assert.equal(f.operations.size, 1);
+});
+
+test("file tools enforce edit grants, project scope and current write permission", async () => {
+  const f = fixture();
+  const readOnly = await f.service.issue("alice", {
+    projects: [projectId],
+    actions: ["read"],
+  });
+  const editor = await f.service.issue("alice", { projects: [projectId] });
+  for (const [tool, args] of [
+    ["overleaf_create_folder", { name: "sections" }],
+    ["overleaf_create_file", { name: "part.tex", content: "text" }],
+    ["overleaf_delete_file", { fileId: docId, expectedPath: "/main.tex" }],
+  ] as const) {
+    const input = { projectId, ...args, operationId: randomUUID() };
+    await assert.rejects(
+      f.service.execute(key(readOnly.url), tool, input),
+      /outside the scope/,
+    );
+    await assert.rejects(
+      f.service.execute(key(editor.url), tool, {
+        ...input,
+        projectId: "333333333333333333333333",
+      }),
+      /outside the scope/,
+    );
+    f.backend.privilege = async () => "readOnly";
+    await assert.rejects(
+      f.service.execute(key(editor.url), tool, input),
+      /does not have access/,
+    );
+  }
+  assert.equal(f.operations.size, 0);
+});
+
+test("file creation validates text, binary, size and filenames before reserving a write", async () => {
+  const f = fixture();
+  const credential = key((await f.service.issue("alice", {})).url);
+  const create = (extra: Record<string, unknown>) =>
+    f.service.execute(credential, "overleaf_create_file", {
+      projectId,
+      name: "part.tex",
+      operationId: randomUUID(),
+      ...extra,
+    });
+  let received: unknown;
+  f.backend.createFile = async (_project, user, args, authorize) => {
+    assert.equal(user, "alice");
+    await authorize();
+    received = args.content;
+    return { id: docId, path: "/part.tex" };
+  };
+  await create({ content: "中文\r\nsecond\rthird", dryRun: true });
+  assert.equal(received, "中文\nsecond\nthird");
+  assert.equal(f.operations.size, 0);
+  await create({
+    content: Buffer.from([0, 1, 255]).toString("base64"),
+    encoding: "base64",
+  });
+  assert.equal([...f.operations.values()][0].kind, "create_file");
+  assert.ok(!("content" in [...f.operations.values()][0]));
+  for (const extra of [
+    { content: "bad*base64", encoding: "base64" },
+    { content: "YQ", encoding: "base64" },
+    { content: "a\u0000b" },
+    { content: "\ud800" },
+    { content: "中".repeat(666_667) },
+    {
+      content: Buffer.alloc(maxFileBytes + 1).toString("base64"),
+      encoding: "base64",
+    },
+    ...[
+      "../a.tex",
+      "nested/a.tex",
+      "a\\b.tex",
+      "constructor",
+      "__proto__",
+      "a ",
+      "🌱.tex",
+    ].map((name) => ({ name })),
+  ])
+    await assert.rejects(create(extra));
+  assert.equal(f.operations.size, 1);
+});
+
+test("attachments accept the 50 MB boundary while editable text stays at 2 MB", async () => {
+  const f = fixture();
+  const credential = key((await f.service.issue("alice", {})).url);
+  const identity = (await f.service.execute(
+    credential,
+    "overleaf_whoami",
+    {},
+  )) as { capabilities: { maxFileBytes: number; maxTextFileBytes: number } };
+  assert.equal(identity.capabilities.maxFileBytes, 50_000_000);
+  assert.equal(identity.capabilities.maxTextFileBytes, 2_000_000);
+  let submitted = 0;
+  f.backend.createFile = async (_project, _user, args, authorize) => {
+    await authorize();
+    assert.equal(
+      Buffer.byteLength(
+        args.content,
+        args.encoding === "base64" ? "base64" : "utf8",
+      ),
+      args.encoding === "base64" ? maxFileBytes : maxTextFileBytes,
+    );
+    submitted++;
+    return {};
+  };
+  await f.service.execute(credential, "overleaf_create_file", {
+    projectId,
+    name: "large.svg",
+    encoding: "base64",
+    content: Buffer.alloc(maxFileBytes).toString("base64"),
+    operationId: randomUUID(),
+  });
+  await f.service.execute(credential, "overleaf_create_file", {
+    projectId,
+    name: "large.tex",
+    content: "a".repeat(maxTextFileBytes),
+    operationId: randomUUID(),
+  });
+  await assert.rejects(
+    f.service.execute(credential, "overleaf_create_file", {
+      projectId,
+      name: "large.svg",
+      content: "a".repeat(maxTextFileBytes + 1),
+      operationId: randomUUID(),
+    }),
+    { code: "FILE_TOO_LARGE" },
+  );
+  assert.equal(submitted, 2);
+});
+
+test("file and folder operations preserve uncertain outcomes and block replays across tools", async () => {
+  for (const mutation of ["createFile", "createFolder"] as const) {
+    const f = fixture();
+    const credential = key((await f.service.issue("alice", {})).url);
+    const operationId = randomUUID();
+    let submissions = 0;
+    f.backend[mutation] = async () => {
+      submissions++;
+      throw new Error("connection lost after submission");
+    };
+    await assert.rejects(
+      f.service.execute(
+        credential,
+        mutation === "createFile"
+          ? "overleaf_create_file"
+          : "overleaf_create_folder",
+        {
+          projectId,
+          name: "part.tex",
+          operationId,
+        },
+      ),
+    );
+    assert.equal([...f.operations.values()][0].state, "unknown");
+    await assert.rejects(
+      f.service.execute(credential, "overleaf_delete_file", {
+        projectId,
+        fileId: docId,
+        expectedPath: "/part.tex",
+        operationId,
+      }),
+      /already been submitted/,
+    );
+    assert.equal(submissions, 1);
+  }
+});
+
+test("file and folder mutations reauthorize after backend preparation", async () => {
+  for (const mutation of [
+    "createFile",
+    "createFolder",
+    "deleteFile",
+  ] as const) {
+    const f = fixture();
+    const issued = await f.service.issue("alice", {});
+    let written = false;
+    f.backend[mutation] = async (_project, _user, _args, authorize) => {
+      await f.service.revoke("alice", issued.grant.id);
+      await authorize();
+      written = true;
+    };
+    await assert.rejects(
+      f.service.execute(
+        key(issued.url),
+        mutation === "createFile"
+          ? "overleaf_create_file"
+          : mutation === "createFolder"
+            ? "overleaf_create_folder"
+            : "overleaf_delete_file",
+        {
+          projectId,
+          operationId: randomUUID(),
+          ...(mutation !== "deleteFile"
+            ? { name: "part.tex" }
+            : { fileId: docId, expectedPath: "/part.tex" }),
+        },
+      ),
+      /invalid/,
+    );
+    assert.equal(written, false);
+    assert.equal([...f.operations.values()][0].state, "rejected");
+  }
 });

@@ -6,6 +6,8 @@ import { readFile, writeFile, mkdir, chmod } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { createInterface } from "node:readline/promises";
+import { NativeSessionStore } from "./sessions.js";
+import { recoveryMessage } from "../../extensions/agent-access/shared/chat.js";
 import { AcpRuntime } from "./acp.js";
 import { resolveRuntime, type RuntimeConfig } from "./runtime.js";
 import { runtimes } from "../../extensions/agent-access/shared/runtimes.js";
@@ -19,7 +21,8 @@ export async function* events(body: ReadableStream<Uint8Array>) {
       const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
-      if (buffer.length > 2_000_000) throw new Error("事件超出大小限制");
+      if (buffer.length > 2_000_000)
+        throw new Error("The event exceeds the size limit");
       let boundary;
       while ((boundary = buffer.indexOf("\n\n")) !== -1) {
         const frame = buffer.slice(0, boundary);
@@ -64,7 +67,7 @@ function origin(value: string) {
     )
   )
     throw new Error(
-      "站点地址必须为 HTTPS；本机实验可使用 http://localhost:18080",
+      "The server URL must use HTTPS. Local development can use http://localhost:18080.",
     );
   return url.origin;
 }
@@ -83,7 +86,7 @@ async function main() {
   });
   if (values.help) {
     console.log(
-      "用法: node overleaf-agent-connector.mjs --server http://localhost:18080 [--pair] [--runtime codex|claude|opencode]\n首次启动时粘贴弹窗中的一次性配对码。Codex / Claude Code 需要 Node.js 22+，首次启动会下载固定版本的 ACP 适配器。连接器运行期间可在网页侧栏聊天。\n可用 --config PATH 保存独立连接；凭据仅保存在本机权限 0600 的文件中。",
+      "Usage: node overleaf-agent-connector.mjs --server http://localhost:18080 [--pair] [--runtime codex|claude|opencode]\nOn first launch, paste the one-time pairing code from the connection dialog. Codex and Claude Code require Node.js 22+. The pinned ACP adapter is downloaded on first use. Keep the connector running to chat in the web sidebar.\nUse --config PATH for a separate connection. Credentials are stored locally in a file with mode 0600.",
     );
     return;
   }
@@ -95,7 +98,7 @@ async function main() {
     config = JSON.parse(await readFile(path, "utf8"));
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT")
-      throw new Error("连接配置无法读取");
+      throw new Error("Unable to read the connection configuration");
   }
   const selected = resolveRuntime(
     { runtime: values.runtime, agent: values.agent, args: values["agent-arg"] },
@@ -109,7 +112,7 @@ async function main() {
     values.runtime !== config.runtime
   )
     throw new Error(
-      "切换 Agent 请使用 --pair 和新的配对码；可用 --config 保存不同的连接",
+      "To change agents, use --pair with a new pairing code. Use --config to keep separate connections.",
     );
   if (!config || values.pair) {
     const server = origin(
@@ -128,7 +131,9 @@ async function main() {
         }),
         terminal: Boolean(process.stdin.isTTY),
       });
-      process.stdout.write("粘贴一次性配对码（输入不回显）: ");
+      process.stdout.write(
+        "Paste the one-time pairing code (input is hidden): ",
+      );
       try {
         code = (await readline.question("")).trim();
       } finally {
@@ -149,7 +154,9 @@ async function main() {
       redirect: "error",
     });
     if (!response.ok)
-      throw new Error(`配对失败（HTTP ${response.status}），请重新生成配对码`);
+      throw new Error(
+        `Pairing failed (HTTP ${response.status}). Generate a new pairing code.`,
+      );
     config = {
       ...((await response.json()) as Omit<Config, "origin" | "agent" | "args">),
       origin: server,
@@ -162,17 +169,20 @@ async function main() {
   config.origin = origin(config.origin);
   if (values.server && origin(values.server) !== config.origin)
     throw new Error(
-      "站点与已保存的连接不一致，请使用另一个 --config 或重新 --pair",
+      "The server does not match the saved connection. Use a different --config or pair again with --pair.",
     );
   const mcp = new URL(config.mcpUrl);
   if (
     mcp.origin !== config.origin ||
     !/^\/mcp\/p\/[a-f0-9]{24}\.[A-Za-z0-9_-]{43}$/.test(mcp.pathname)
   )
-    throw new Error("连接配置中的 MCP 地址无效");
+    throw new Error("The connection configuration contains an invalid MCP URL");
   const { agent, args } = selected;
   const cwd = join(dirname(path), "workspaces", config.connectionId);
   await mkdir(cwd, { recursive: true, mode: 0o700 });
+  const sessionStore = new NativeSessionStore(
+    join(dirname(path), "sessions", config.connectionId),
+  );
   let stopping = false,
     active: AbortController | undefined;
   const stop = () => {
@@ -184,8 +194,11 @@ async function main() {
   const headers = {
     "X-Overleaf-Agent-Bridge-Key": config.credential,
     "X-Overleaf-Agent-Prepare": "1",
+    "X-Overleaf-Agent-Rebind": "1",
   };
-  console.log(`连接 ${config.name}；Agent: ${agent}。按 Ctrl+C 停止。`);
+  console.log(
+    `Connecting ${config.name}; agent: ${agent}. Press Ctrl+C to stop.`,
+  );
   while (!stopping) {
     active = new AbortController();
     const controller = active;
@@ -194,22 +207,30 @@ async function main() {
       args,
       cwd,
       mcpUrl: config.mcpUrl,
+      sessionStore,
+      sessionScope: `${config.origin}:${config.connectionId}`,
       onExit: () => controller.abort(),
       loginHint: selected.runtime
         ? runtimes[selected.runtime].login
         : undefined,
-      onSession: async (sessionId, error) => {
+      onSession: async (sessionId, error, bindingVersion, recovery) => {
         const response = await fetch(config!.origin + "/agent-bridge/session", {
           method: "POST",
           headers: { ...headers, "Content-Type": "application/json" },
-          body: JSON.stringify({ sessionId, error }),
+          body: JSON.stringify({ sessionId, error, bindingVersion, recovery }),
           signal: AbortSignal.timeout(20_000),
           redirect: "error",
         });
+        // A conversation may have moved to another connector while this one was preparing.
+        if (response.status === 404) return;
         if (!response.ok)
-          throw new Error(`会话初始化回传失败（HTTP ${response.status}）`);
+          throw new Error(
+            `Unable to report session initialization (HTTP ${response.status})`,
+          );
         if (!error)
-          console.log("项目会话已就绪，可以在对应项目的 Agent 侧栏发送消息。");
+          console.log(
+            `${recovery ? recoveryMessage(recovery) : "Project session ready"}. You can send messages in the project agent sidebar.`,
+          );
       },
       emit: async (sessionId, runId, event) => {
         const response = await fetch(config!.origin + "/agent-bridge/events", {
@@ -221,13 +242,15 @@ async function main() {
         });
         if (!response.ok) {
           controller.abort();
-          throw new Error(`会话回传失败（HTTP ${response.status}）`);
+          throw new Error(
+            `Unable to report session updates (HTTP ${response.status})`,
+          );
         }
       },
     });
     let heartbeat: ReturnType<typeof setTimeout> | undefined;
     try {
-      console.log("正在启动本地 Agent…");
+      console.log("Starting the local agent…");
       await runtime.initialized();
       const response = await fetch(config.origin + "/agent-bridge/connect", {
         headers,
@@ -238,20 +261,24 @@ async function main() {
         stopping = true;
         throw new Error(
           response.status === 409
-            ? "连接器已在另一进程运行"
-            : "连接已停用或重置，请在网页重新配对",
+            ? "The connector is already running in another process"
+            : "The connection has been disabled or reset. Pair again from the web interface.",
         );
       }
       if (!response.ok || !response.body)
-        throw new Error(`连接失败（HTTP ${response.status}）`);
-      console.log("已连到 Overleaf，等待连接确认和项目会话…");
+        throw new Error(`Connection failed (HTTP ${response.status})`);
+      console.log("Connected to Overleaf. Waiting for confirmation…");
       for await (const event of events(response.body)) {
         clearTimeout(heartbeat);
         heartbeat = setTimeout(() => controller.abort(), 35_000);
         if (event.event === "ready") {
           if (event.data.connectionId !== config.connectionId)
-            throw new Error("服务端返回的连接身份不匹配，请重新连接");
-          console.log("连接已确认。当前连接可用于这些项目：");
+            throw new Error(
+              "The server returned a mismatched connection identity. Please reconnect.",
+            );
+          console.log(
+            "Connection confirmed. This connection can access these projects:",
+          );
           if (Array.isArray(event.data.projects)) {
             for (const project of event.data.projects) {
               if (
@@ -262,13 +289,21 @@ async function main() {
                   `  ${project.name.replace(/[\r\n\x1b]/g, " ")} — ${config.origin}/project/${project.id}`,
                 );
             }
-          } else console.log("  请在网页连接设置中查看授权项目。");
+          } else
+            console.log(
+              "  View authorized projects in the web connection settings.",
+            );
+          console.log(
+            "Start or continue a conversation on the web. New conversations are created when you send the first message.",
+          );
         }
         if (event.event === "command")
           void runtime.command(event.data as BridgeCommand).catch((error) => {
             if (event.data.type === "prepare")
               console.error(
-                error instanceof Error ? error.message : "会话初始化失败",
+                error instanceof Error
+                  ? error.message
+                  : "Session initialization failed",
               );
             else controller.abort();
           });
@@ -280,7 +315,7 @@ async function main() {
             !error.message.includes(config.credential) &&
             !error.message.includes(config.mcpUrl)
             ? error.message
-            : "连接中断",
+            : "Connection interrupted",
         );
     } finally {
       clearTimeout(heartbeat);
@@ -288,7 +323,9 @@ async function main() {
       runtime.stop();
     }
     if (!stopping) {
-      console.log("3 秒后重连；中断的任务不会自动重放。");
+      console.log(
+        "Reconnecting in 3 seconds. Interrupted tasks will not be replayed automatically.",
+      );
       await new Promise((resolve) => setTimeout(resolve, 3000));
     }
   }
@@ -298,6 +335,8 @@ if (
   fileURLToPath(import.meta.url) === realpathSync(process.argv[1])
 )
   main().catch((error) => {
-    console.error(error instanceof Error ? error.message : "连接器启动失败");
+    console.error(
+      error instanceof Error ? error.message : "Unable to start the connector",
+    );
     process.exitCode = 1;
   });
