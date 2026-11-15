@@ -1,5 +1,9 @@
 # Development progress
 
+## Git push staging and transport (2026-11-15)
+
+Resumed Git implementation after the MCP folder request. Added persistent candidate staging with complete-tree reconstruction, deletion detection, path/URL checks, streamed 50 MB files and atomic publication without retaining callback credentials. The real Java/JGit contract test now verifies a write-token push, official postback and a fresh clone, including Chinese paths, changed/unchanged/deleted files, a 50 MB new binary and preserved commit ID. The Snapshot API in this test is an isolated fixture; native CE push remains disabled. Next is the native project write barrier and durable apply/ref reconciliation described in [Git preview](git-preview.md).
+
 ## MCP folder creation (2026-11-15)
 
 Added `overleaf_create_folder` to the personal HTTP MCP (ten tools). It creates one root-level or nested directory using an optional `parentFolderId`, returns `result.folderId` for child folders/files, and accepts Unicode names. Existing `edit` grants and current project write permissions apply; no grant migration is needed. Dry runs return target metadata without creating a directory or reserving an operation. Submitted operations use the existing UUID journal and are not replayed after uncertain results.
