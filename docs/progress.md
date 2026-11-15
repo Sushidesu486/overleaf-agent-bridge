@@ -1,5 +1,11 @@
 # Development progress
 
+## Distinct Git and Agent rail icons (2026-11-15)
+
+Replaced the shared integrations glyph with a branch SVG for Git and a bot SVG for My Agent. The Git integration card reuses the branch shape. Both use native 20 px sizing, `currentColor`, existing rail selected/hover colors and accessible labels. The native rail's custom-icon extension is reused; its single icon replacement is guarded by the pinned source hash.
+
+Updated only the isolated m700 preview on port 18084. Image `overleaf-git-check:m700-icons`: `sha256:ba64963de21311c0168f67dc93ef276ee6106709ba4bcaa05ba0ae0b85acce70`, CE revision `370f4763da4bc910da8309c9a71c85ecbe39f6a7`. Typecheck, native frontend build and existing tests passed (79 passed, 8 optional database cases skipped). Headless Chromium verified both icons, 20×20 bounds, native panel switching and light/dark selected states with no page errors; screenshots were visually inspected. Production and Git write settings are unchanged.
+
 ## Git push staging and transport (2026-11-15)
 
 Resumed Git implementation after the MCP folder request. Added persistent candidate staging with complete-tree reconstruction, deletion detection, path/URL checks, streamed 50 MB files and atomic publication without retaining callback credentials. The real Java/JGit contract test now verifies a write-token push, official postback and a fresh clone, including Chinese paths, changed/unchanged/deleted files, a 50 MB new binary and preserved commit ID. The Snapshot API in this test is an isolated fixture; native CE push remains disabled. Next is the native project write barrier and durable apply/ref reconciliation described in [Git preview](git-preview.md). Typecheck/build and full tests passed (79 passed, 8 optional database tests skipped). Standards and Spec review identified a missing parent-directory fsync for newly created staging roots; the fix syncs directory ancestry before publishing staged inputs, and the four targeted staging cases passed again. Both review axes have no remaining findings. The same four staging tests then passed in m700’s pinned CE container after adapting fsync to its Yarn PnP runtime; runtime images and native push settings were not changed.

@@ -328,3 +328,11 @@ body:has(#agent-page-root) {
     flex: 0 0 8rem;
   }
 }
+
+.project-rail-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}

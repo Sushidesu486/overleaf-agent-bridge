@@ -9,6 +9,9 @@ HASHES = {
         # Same base with the server module registration from install.py.
         '2499fd5ec291a48e11a71a20eac85a9e2f3ea60e5956b01c938149fe8ccf2749',
     },
+    'frontend/js/features/ide-react/components/rail/rail.tsx': {
+        'cdf63df975ffe50c0675e4dbb4f53c153c786a8d2a65dd213a36f0a99e68c989',
+    },
     'frontend/js/features/ide-react/context/rail-context.tsx': {
         'cd32b65a87bb6184dec7fcfaf1911b505da91b74681bdd732f92b04e16806b87',
     },
@@ -38,6 +41,12 @@ replace('config/settings.defaults.js', '    integrationPanelComponents: [],',
         "    integrationPanelComponents: [Path.resolve(__dirname, '../modules/agent-access/frontend/js/components/git-integration.tsx')],")
 replace('frontend/js/features/ide-react/context/rail-context.tsx',
         "  | 'workbench'\n", "  | 'workbench'\n  | 'agent-access'\n")
+replace('frontend/js/features/ide-react/components/rail/rail.tsx',
+        "import IntegrationsPanel from '@/features/integrations-panel/integrations-panel'",
+        "import IntegrationsPanel from '@/features/integrations-panel/integrations-panel'\n"
+        "import { GitRailIcon } from '../../../../../../modules/agent-access/frontend/js/components/project-icons'")
+replace('frontend/js/features/ide-react/components/rail/rail.tsx',
+        "        icon: 'integration_instructions',", "        icon: GitRailIcon,")
 replace('frontend/stylesheets/main-style.scss',
         "@import 'ciam/all';",
         "@import 'ciam/all';\n@import '../../modules/agent-access/frontend/stylesheets/agent';")

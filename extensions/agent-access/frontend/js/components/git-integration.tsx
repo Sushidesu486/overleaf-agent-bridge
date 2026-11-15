@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import getMeta from "@/utils/meta";
 import { useProjectContext } from "@/shared/context/project-context";
 import IntegrationCard from "@/features/integrations-panel/integration-card";
-import MaterialIcon from "@/shared/components/material-icon";
+import { GitBranchIcon } from "./project-icons";
 import OLButton from "@/shared/components/ol/ol-button";
 import OLFormControl from "@/shared/components/ol/ol-form-control";
 import OLFormSelect from "@/shared/components/ol/ol-form-select";
@@ -290,7 +290,7 @@ export default function GitIntegration() {
       <IntegrationCard
         title="Git"
         description="Work locally with Git and your own agent."
-        icon={<MaterialIcon type="account_tree" />}
+        icon={<GitBranchIcon />}
         showPaywallBadge={false}
         onClick={() => setOpen(true)}
       />
