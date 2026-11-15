@@ -44,7 +44,7 @@ The earlier m701 lab remains at `/home/shouss/projects/overleaf-git-check` with 
 
 Staged content uses private numeric filenames, hashes and a URL-free manifest. Files and metadata are flushed before atomic directory publication; incomplete downloads are removed on failure. An existing operation directory is not overwritten. This supplies persistent inputs for the forthcoming operation journal; it does not yet implement that journal or automatically recover a native write.
 
-Four targeted tests cover exact Chinese/binary bytes, preflight rejection without downloads, failure cleanup, duplicate-operation preservation and the inclusive 50 MB limit. The real Java/JGit fixture also covers the upload/postback contract and subsequent clone. A reproduced local 404 was caused by Jetty rejecting the macOS `/var` temporary-path alias; the fixture now canonicalizes its temporary directory and creates the attachment directory before Java starts. The m700 runtime images are unchanged by this staging slice.
+Four targeted tests cover exact Chinese/binary bytes, preflight rejection without downloads, failure cleanup, duplicate-operation preservation and the inclusive 50 MB limit. The real Java/JGit fixture also covers the upload/postback contract and subsequent clone. A reproduced local 404 was caused by Jetty rejecting the macOS `/var` temporary-path alias; the fixture now canonicalizes its temporary directory and creates the attachment directory before Java starts. The same four staging tests passed inside the m700 CE container on Node 24.22.1. This exposed Yarn PnP’s unimplemented `FileHandle.sync()`; staging uses the native callback `fsync(fd)` API instead. The m700 runtime images are unchanged by this staging slice.
 
 ## Next: recoverable push
 

@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
-import { createWriteStream } from "node:fs";
+import { createWriteStream, fsync } from "node:fs";
+import { promisify } from "node:util";
 import { mkdir, mkdtemp, open, readFile, rename, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { GitError, validId } from "./access.mjs";
@@ -18,12 +19,25 @@ const validOperation = (id) =>
     id,
   );
 const invalid = (message) => new GitError("invalid_candidate", message, 422);
+// CE uses Yarn PnP, whose FileHandle.sync() is not implemented.
+const syncFd = promisify(fsync);
 async function syncPath(path) {
   const handle = await open(path, "r");
   try {
-    await handle.sync();
+    await syncFd(handle.fd);
   } finally {
     await handle.close();
+  }
+}
+
+async function ensureDurableDirectory(path) {
+  await mkdir(path, { recursive: true, mode: 0o700 });
+  // A first operation can create the configured root and several parents.
+  // Sync their entries as well, including directories created by a concurrent
+  // stage whose own fsync has not completed yet.
+  for (let current = resolve(path); ; current = dirname(current)) {
+    await syncPath(current);
+    if (dirname(current) === current) break;
   }
 }
 
@@ -151,7 +165,7 @@ export function createPushStaging({
       for (const entry of entries)
         if (!entry.url && !oldFiles.has(entry.path))
           throw invalid(`Missing content for new file: ${entry.path}`);
-      await mkdir(join(root, projectId), { recursive: true, mode: 0o700 });
+      await ensureDurableDirectory(join(root, projectId));
       const temp = await mkdtemp(join(root, projectId, ".staging-"));
       let totalBytes = 0;
       try {
@@ -236,7 +250,7 @@ export function createPushStaging({
         const handle = await open(join(temp, "manifest.json"), "wx", 0o600);
         try {
           await handle.writeFile(JSON.stringify(manifest));
-          await handle.sync();
+          await syncFd(handle.fd);
         } finally {
           await handle.close();
         }
